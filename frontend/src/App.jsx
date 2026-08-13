@@ -4,6 +4,8 @@ import Setup from './components/Setup';
 import Chat from './components/Chat';
 import EvaluationReport from './components/EvaluationReport';
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 function App() {
   const [view, setView] = useState('setup');
   const [sessionId, setSessionId] = useState(null);
@@ -55,7 +57,7 @@ function App() {
         if (matches) totalFillers += matches.length;
       });
 
-      const response = await fetch('/api/end', {
+      const response = await fetch(`${API_URL}/api/end`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
