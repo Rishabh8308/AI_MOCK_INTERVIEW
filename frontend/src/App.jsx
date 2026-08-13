@@ -3,7 +3,6 @@ import { useState, useEffect } from 'react';
 import Setup from './components/Setup';
 import Chat from './components/Chat';
 import EvaluationReport from './components/EvaluationReport';
-import backgroundVideo from "./assets/background.mp4";
 
 function App() {
   const [view, setView] = useState('setup');
@@ -92,7 +91,7 @@ function App() {
           <>
             <video
               className="background-video"
-              src={backgroundVideo}
+              src="/background.mp4"
               autoPlay
               muted
               loop
