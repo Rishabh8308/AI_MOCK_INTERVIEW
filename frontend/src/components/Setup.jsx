@@ -25,7 +25,7 @@ const Setup = ({ onStart }) => {
     if (!formData.leetcodeUsername) return;
     setFetchingLeetcode(true);
     try {
-      const response = await fetch(`/api/leetcode-profile/${formData.leetcodeUsername}`);
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/leetcode-profile/${formData.leetcodeUsername}`);
       const data = await response.json();
       if (response.ok) {
         setLeetcodeData(data);
@@ -45,7 +45,7 @@ const Setup = ({ onStart }) => {
     if (!formData.githubUsername) return;
     setFetchingGithub(true);
     try {
-      const response = await fetch(`/api/github-profile/${formData.githubUsername}`);
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/github-profile/${formData.githubUsername}`);
       const data = await response.json();
       if (response.ok) {
         setGithubData(data);
@@ -71,7 +71,7 @@ const Setup = ({ onStart }) => {
     }
 
     try {
-      const response = await fetch('/api/start', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/start`, {
         method: 'POST',
         body: data
       });

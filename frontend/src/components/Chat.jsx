@@ -144,7 +144,7 @@ const Chat = ({ sessionId, initialMessage, interviewType, pressureMode, liveMode
     setTimeLeft(120); // Reset timer immediately
 
     try {
-      const resp = await fetch('/api/chat', {
+     fetch(`${import.meta.env.VITE_API_URL}/api/chat`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json'
