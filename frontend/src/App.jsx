@@ -129,7 +129,7 @@ function App() {
               </div>
 
               <h1 className="title">
-                AI MOCK INTERVIEWER
+                AI-Facilitated Competency Assessment
               </h1>
 
               {view === 'setup' && (
