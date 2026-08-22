@@ -1,0 +1,1920 @@
+import { useEffect, useRef, useState } from 'react';
+
+const VoiceInterview = ({
+  sessionId,
+  initialMessage,
+  recordingMode = 'audio',
+  onEndInterview
+}) => {
+  const API_URL = import.meta.env.VITE_API_URL || '';
+
+  const [status, setStatus] = useState('idle');
+  const [aiSpeaking, setAiSpeaking] = useState(false);
+  const [error, setError] = useState('');
+  const [questionCount, setQuestionCount] = useState(1);
+  const [audioLevel, setAudioLevel] = useState(0);
+
+  const statusRef = useRef('idle');
+  const audioLevelRef = useRef(0);
+
+  const recognitionRef = useRef(null);
+  const isListeningRef = useRef(false);
+  const mountedRef = useRef(true);
+
+  const audioContextRef = useRef(null);
+  const analyserRef = useRef(null);
+  const microphoneStreamRef = useRef(null);
+  const audioAnimationRef = useRef(null);
+
+  const recordingStreamRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const recordingChunksRef = useRef([]);
+  const recordingStartedRef = useRef(false);
+  const recordingStoppedRef = useRef(false);
+  const recordingMimeTypeRef = useRef('');
+
+  const videoRef = useRef(null);
+
+  const canvasRef = useRef(null);
+  const animationRef = useRef(null);
+
+  const playbackContextRef = useRef(null);
+  const playbackNextTimeRef = useRef(0);
+  const playbackSourcesRef = useRef([]);
+  const streamFinishedRef = useRef(false);
+  const lastScheduledSourceRef = useRef(null);
+
+  const transcriptRef = useRef([]);
+  const conversationStartedRef = useRef(false);
+
+  const SpeechRecognition =
+    window.SpeechRecognition ||
+    window.webkitSpeechRecognition;
+
+  const updateStatus = (value) => {
+    statusRef.current = value;
+    setStatus(value);
+  };
+
+  const updateAudioLevel = (value) => {
+    audioLevelRef.current = value;
+    setAudioLevel(value);
+  };
+
+  const getAudioContext = async () => {
+    if (!playbackContextRef.current) {
+      const AudioContext =
+        window.AudioContext ||
+        window.webkitAudioContext;
+
+      if (!AudioContext) {
+        throw new Error(
+          'Web Audio API is not supported in this browser.'
+        );
+      }
+
+      playbackContextRef.current =
+        new AudioContext();
+    }
+
+    const context =
+      playbackContextRef.current;
+
+    if (context.state === 'suspended') {
+      await context.resume();
+    }
+
+    return context;
+  };
+
+  const base64ToBytes = (base64) => {
+    const binaryString =
+      window.atob(base64);
+
+    const bytes =
+      new Uint8Array(
+        binaryString.length
+      );
+
+    for (
+      let i = 0;
+      i < binaryString.length;
+      i++
+    ) {
+      bytes[i] =
+        binaryString.charCodeAt(i);
+    }
+
+    return bytes;
+  };
+
+  const playPcmChunk = async (
+    base64Audio
+  ) => {
+    const context =
+      await getAudioContext();
+
+    const bytes =
+      base64ToBytes(base64Audio);
+
+    if (!bytes.length) return;
+
+    const sampleCount =
+      Math.floor(bytes.length / 2);
+
+    const audioBuffer =
+      context.createBuffer(
+        1,
+        sampleCount,
+        24000
+      );
+
+    const channelData =
+      audioBuffer.getChannelData(0);
+
+    const dataView =
+      new DataView(
+        bytes.buffer,
+        bytes.byteOffset,
+        bytes.byteLength
+      );
+
+    for (
+      let i = 0;
+      i < sampleCount;
+      i++
+    ) {
+      const sample =
+        dataView.getInt16(
+          i * 2,
+          true
+        );
+
+      channelData[i] =
+        sample / 32768;
+    }
+
+    const source =
+      context.createBufferSource();
+
+    source.buffer = audioBuffer;
+
+    const gainNode =
+      context.createGain();
+
+    gainNode.gain.value = 1;
+
+    source.connect(gainNode);
+    gainNode.connect(context.destination);
+
+    const now =
+      context.currentTime;
+
+    if (
+      playbackNextTimeRef.current <
+      now + 0.03
+    ) {
+      playbackNextTimeRef.current =
+        now + 0.03;
+    }
+
+    const startTime =
+      playbackNextTimeRef.current;
+
+    const endTime =
+      startTime +
+      audioBuffer.duration;
+
+    playbackNextTimeRef.current =
+      endTime;
+
+    source.onended = () => {
+      playbackSourcesRef.current =
+        playbackSourcesRef.current.filter(
+          (item) => item !== source
+        );
+
+      if (
+        source ===
+          lastScheduledSourceRef.current &&
+        streamFinishedRef.current
+      ) {
+        finishAISpeaking();
+      }
+    };
+
+    playbackSourcesRef.current.push(
+      source
+    );
+
+    lastScheduledSourceRef.current =
+      source;
+
+    source.start(startTime);
+  };
+
+  const finishAISpeaking = () => {
+    if (!mountedRef.current) return;
+
+    setAiSpeaking(false);
+
+    updateStatus('listening');
+
+    startListening();
+  };
+
+  const stopAIPlayback = () => {
+    playbackSourcesRef.current.forEach(
+      (source) => {
+        try {
+          source.onended = null;
+          source.stop();
+        } catch {}
+      }
+    );
+
+    playbackSourcesRef.current = [];
+
+    lastScheduledSourceRef.current =
+      null;
+
+    streamFinishedRef.current = false;
+
+    if (playbackContextRef.current) {
+      playbackNextTimeRef.current =
+        playbackContextRef.current.currentTime;
+    } else {
+      playbackNextTimeRef.current = 0;
+    }
+
+    setAiSpeaking(false);
+  };
+
+  const speakAI = async (text) => {
+    if (!text) return;
+
+    stopAIPlayback();
+
+    setAiSpeaking(true);
+    updateStatus('speaking');
+    setError('');
+
+    streamFinishedRef.current =
+      false;
+
+    try {
+      if (playbackContextRef.current) {
+        await playbackContextRef.current.resume();
+      }
+
+      const response =
+        await fetch(
+          `${API_URL}/api/tts`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type':
+                'application/json'
+            },
+            body: JSON.stringify({
+              text: text.trim()
+            })
+          }
+        );
+
+      if (!response.ok) {
+        let message =
+          'Failed to generate AI voice.';
+
+        try {
+          const data =
+            await response.json();
+
+          if (data.error) {
+            message = data.error;
+          }
+        } catch {}
+
+        throw new Error(message);
+      }
+
+      if (!response.body) {
+        throw new Error(
+          'The TTS server did not return a readable audio stream.'
+        );
+      }
+
+      const reader =
+        response.body.getReader();
+
+      const decoder =
+        new TextDecoder();
+
+      let buffer = '';
+
+      while (true) {
+        const {
+          value,
+          done
+        } = await reader.read();
+
+        if (done) break;
+
+        buffer +=
+          decoder.decode(
+            value,
+            {
+              stream: true
+            }
+          );
+
+        const events =
+          buffer.split('\n\n');
+
+        buffer =
+          events.pop() || '';
+
+        for (const event of events) {
+          const lines =
+            event.split('\n');
+
+          for (const line of lines) {
+            if (
+              !line.startsWith(
+                'data: '
+              )
+            ) {
+              continue;
+            }
+
+            const payload =
+              line.slice(6).trim();
+
+            if (!payload) {
+              continue;
+            }
+
+            let data;
+
+            try {
+              data =
+                JSON.parse(payload);
+            } catch {
+              continue;
+            }
+
+            if (data.error) {
+              throw new Error(
+                data.error
+              );
+            }
+
+            if (data.done) {
+              continue;
+            }
+
+            if (data.audio) {
+              await playPcmChunk(
+                data.audio
+              );
+            }
+          }
+        }
+      }
+
+      if (buffer.trim()) {
+        const lines =
+          buffer.split('\n');
+
+        for (const line of lines) {
+          if (
+            !line.startsWith(
+              'data: '
+            )
+          ) {
+            continue;
+          }
+
+          const payload =
+            line.slice(6).trim();
+
+          if (!payload) continue;
+
+          try {
+            const data =
+              JSON.parse(payload);
+
+            if (
+              data.audio &&
+              !data.done
+            ) {
+              await playPcmChunk(
+                data.audio
+              );
+            }
+          } catch {}
+        }
+      }
+
+      streamFinishedRef.current =
+        true;
+
+      if (
+        !lastScheduledSourceRef.current
+      ) {
+        finishAISpeaking();
+      }
+    } catch (err) {
+      console.error(
+        'Gemini TTS error:',
+        err
+      );
+
+      if (!mountedRef.current) return;
+
+      setAiSpeaking(false);
+      updateStatus('error');
+
+      setError(
+        err.message ||
+          'Unable to generate AI voice.'
+      );
+    }
+  };
+
+  const startRecording = async () => {
+    if (
+      recordingStartedRef.current
+    ) {
+      return;
+    }
+
+    try {
+      const constraints =
+        recordingMode === 'video'
+          ? {
+              audio: true,
+              video: {
+                width: {
+                  ideal: 1280
+                },
+                height: {
+                  ideal: 720
+                },
+                facingMode:
+                  'user'
+              }
+            }
+          : {
+              audio: true
+            };
+
+      const stream =
+        await navigator.mediaDevices.getUserMedia(
+          constraints
+        );
+
+      recordingStreamRef.current =
+        stream;
+
+      if (
+        recordingMode === 'video' &&
+        videoRef.current
+      ) {
+        videoRef.current.srcObject =
+          stream;
+
+        try {
+          await videoRef.current.play();
+        } catch {}
+      }
+
+      recordingChunksRef.current =
+        [];
+
+      const mimeTypes = [
+        'video/webm;codecs=vp9,opus',
+        'video/webm;codecs=vp8,opus',
+        'video/webm',
+        'audio/webm;codecs=opus',
+        'audio/webm'
+      ];
+
+      let selectedMimeType = '';
+
+      for (const type of mimeTypes) {
+        if (
+          MediaRecorder.isTypeSupported(
+            type
+          )
+        ) {
+          if (
+            recordingMode ===
+              'audio' &&
+            type.startsWith(
+              'audio/'
+            )
+          ) {
+            selectedMimeType = type;
+            break;
+          }
+
+          if (
+            recordingMode ===
+              'video' &&
+            type.startsWith(
+              'video/'
+            )
+          ) {
+            selectedMimeType = type;
+            break;
+          }
+        }
+      }
+
+      const recorder =
+        selectedMimeType
+          ? new MediaRecorder(
+              stream,
+              {
+                mimeType:
+                  selectedMimeType
+              }
+            )
+          : new MediaRecorder(
+              stream
+            );
+
+      recordingMimeTypeRef.current =
+        recorder.mimeType ||
+        selectedMimeType;
+
+      recorder.ondataavailable =
+        (event) => {
+          if (
+            event.data &&
+            event.data.size > 0
+          ) {
+            recordingChunksRef.current.push(
+              event.data
+            );
+          }
+        };
+
+      recorder.onstop = () => {
+        recordingStoppedRef.current =
+          true;
+
+        const mimeType =
+          recordingMimeTypeRef.current ||
+          (recordingMode ===
+          'video'
+            ? 'video/webm'
+            : 'audio/webm');
+
+        const blob =
+          new Blob(
+            recordingChunksRef.current,
+            {
+              type: mimeType
+            }
+          );
+
+        console.log(
+          'Voice interview recording ready:',
+          {
+            blob,
+            size: blob.size,
+            type: blob.type,
+            recordingMode
+          }
+        );
+      };
+
+      recorder.onerror = (event) => {
+        console.error(
+          'MediaRecorder error:',
+          event
+        );
+
+        setError(
+          'Recording error occurred.'
+        );
+      };
+
+      mediaRecorderRef.current =
+        recorder;
+
+      recorder.start(1000);
+
+      recordingStartedRef.current =
+        true;
+
+      recordingStoppedRef.current =
+        false;
+    } catch (err) {
+      console.error(
+        'Recording start error:',
+        err
+      );
+
+      if (
+        err.name ===
+        'NotAllowedError'
+      ) {
+        setError(
+          recordingMode === 'video'
+            ? 'Camera and microphone permission was denied.'
+            : 'Microphone permission was denied.'
+        );
+      } else if (
+        err.name ===
+        'NotFoundError'
+      ) {
+        setError(
+          recordingMode === 'video'
+            ? 'Camera or microphone was not found.'
+            : 'Microphone was not found.'
+        );
+      } else {
+        setError(
+          err.message ||
+            'Unable to start recording.'
+        );
+      }
+    }
+  };
+
+  const stopRecording = () => {
+    if (
+      mediaRecorderRef.current &&
+      mediaRecorderRef.current
+        .state !== 'inactive'
+    ) {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {}
+    }
+
+    if (
+      recordingStreamRef.current
+    ) {
+      recordingStreamRef.current
+        .getTracks()
+        .forEach((track) => {
+          track.stop();
+        });
+    }
+
+    if (videoRef.current) {
+      videoRef.current.srcObject =
+        null;
+    }
+
+    mediaRecorderRef.current =
+      null;
+
+    recordingStreamRef.current =
+      null;
+
+    recordingStartedRef.current =
+      false;
+  };
+
+  const startAudioVisualizer =
+    async () => {
+      try {
+        if (
+          audioContextRef.current
+        ) {
+          return;
+        }
+
+        const stream =
+          recordingStreamRef.current ||
+          (await navigator.mediaDevices.getUserMedia(
+            {
+              audio: true
+            }
+          ));
+
+        const AudioContext =
+          window.AudioContext ||
+          window.webkitAudioContext;
+
+        if (!AudioContext) return;
+
+        const context =
+          new AudioContext();
+
+        const analyser =
+          context.createAnalyser();
+
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant =
+          0.85;
+
+        const microphone =
+          context.createMediaStreamSource(
+            stream
+          );
+
+        microphone.connect(
+          analyser
+        );
+
+        audioContextRef.current =
+          context;
+
+        analyserRef.current =
+          analyser;
+
+        if (
+          !recordingStreamRef.current
+        ) {
+          microphoneStreamRef.current =
+            stream;
+        }
+
+        const data =
+          new Uint8Array(
+            analyser.frequencyBinCount
+          );
+
+        const update = () => {
+          if (
+            !mountedRef.current ||
+            !analyserRef.current
+          ) {
+            return;
+          }
+
+          analyserRef.current.getByteFrequencyData(
+            data
+          );
+
+          let total = 0;
+
+          for (
+            let i = 0;
+            i < data.length;
+            i++
+          ) {
+            total += data[i];
+          }
+
+          const average =
+            total / data.length;
+
+          updateAudioLevel(
+            Math.min(
+              1,
+              average / 55
+            )
+          );
+
+          audioAnimationRef.current =
+            requestAnimationFrame(
+              update
+            );
+        };
+
+        update();
+      } catch (err) {
+        console.warn(
+          'Audio visualizer unavailable:',
+          err
+        );
+      }
+    };
+
+  const stopAudioVisualizer =
+    () => {
+      if (
+        audioAnimationRef.current
+      ) {
+        cancelAnimationFrame(
+          audioAnimationRef.current
+        );
+      }
+
+      if (
+        microphoneStreamRef.current
+      ) {
+        microphoneStreamRef.current
+          .getTracks()
+          .forEach(
+            (track) =>
+              track.stop()
+          );
+      }
+
+      if (
+        audioContextRef.current
+      ) {
+        audioContextRef.current
+          .close()
+          .catch(() => {});
+      }
+
+      audioAnimationRef.current =
+        null;
+
+      microphoneStreamRef.current =
+        null;
+
+      audioContextRef.current =
+        null;
+
+      analyserRef.current =
+        null;
+
+      updateAudioLevel(0);
+    };
+
+  const startListening = async () => {
+    if (!SpeechRecognition) {
+      setError(
+        'Speech recognition is not supported in this browser. Please use Google Chrome or Microsoft Edge.'
+      );
+
+      updateStatus('error');
+      return;
+    }
+
+    if (aiSpeaking) return;
+
+    if (isListeningRef.current)
+      return;
+
+    try {
+      await startAudioVisualizer();
+
+      recognitionRef.current.start();
+
+      isListeningRef.current =
+        true;
+
+      updateStatus('listening');
+      setError('');
+    } catch (err) {
+      console.warn(
+        'Could not start speech recognition:',
+        err.message
+      );
+    }
+  };
+
+  const stopListening = () => {
+    if (!recognitionRef.current)
+      return;
+
+    try {
+      recognitionRef.current.stop();
+    } catch {}
+
+    isListeningRef.current =
+      false;
+  };
+
+  const sendCandidateResponse =
+    async (message) => {
+      const cleaned =
+        message.trim();
+
+      if (!cleaned) {
+        updateStatus('ready');
+        return;
+      }
+
+      transcriptRef.current.push({
+        sender: 'user',
+        text: cleaned,
+        timestamp:
+          new Date().toISOString()
+      });
+
+      updateStatus('thinking');
+      setError('');
+
+      try {
+        const response =
+          await fetch(
+            `${API_URL}/api/chat`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type':
+                  'application/json'
+              },
+              body: JSON.stringify({
+                sessionId,
+                message: cleaned
+              })
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            data.error ||
+              'Failed to communicate with the AI.'
+          );
+        }
+
+        if (!data.reply) {
+          throw new Error(
+            'The AI returned an empty response.'
+          );
+        }
+
+        transcriptRef.current.push({
+          sender: 'ai',
+          text: data.reply,
+          timestamp:
+            new Date().toISOString()
+        });
+
+        setQuestionCount(
+          (previous) =>
+            previous + 1
+        );
+
+        speakAI(data.reply);
+      } catch (err) {
+        console.error(
+          'Voice interview error:',
+          err
+        );
+
+        if (
+          !mountedRef.current
+        ) {
+          return;
+        }
+
+        setError(
+          err.message ||
+            'Unable to communicate with the AI.'
+        );
+
+        updateStatus('error');
+      }
+    };
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    if (!SpeechRecognition) {
+      setError(
+        'Speech recognition is not supported in this browser. Please use Google Chrome or Microsoft Edge.'
+      );
+
+      updateStatus('error');
+
+      return () => {
+        mountedRef.current = false;
+      };
+    }
+
+    const recognition =
+      new SpeechRecognition();
+
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+    recognition.maxAlternatives = 1;
+
+    recognition.onresult =
+      (event) => {
+        let finalText = '';
+
+        for (
+          let i =
+            event.resultIndex;
+          i <
+          event.results.length;
+          i++
+        ) {
+          if (
+            event.results[i]
+              .isFinal
+          ) {
+            finalText +=
+              event.results[i][0]
+                .transcript;
+          }
+        }
+
+        if (finalText.trim()) {
+          sendCandidateResponse(
+            finalText.trim()
+          );
+        }
+      };
+
+    recognition.onend = () => {
+      isListeningRef.current =
+        false;
+
+      if (
+        !mountedRef.current
+      ) {
+        return;
+      }
+
+      const currentStatus =
+        statusRef.current;
+
+      if (
+        currentStatus !==
+          'thinking' &&
+        currentStatus !==
+          'speaking'
+      ) {
+        updateStatus('ready');
+      }
+    };
+
+    recognition.onerror =
+      (event) => {
+        isListeningRef.current =
+          false;
+
+        if (
+          !mountedRef.current
+        ) {
+          return;
+        }
+
+        if (
+          event.error ===
+          'no-speech'
+        ) {
+          updateStatus('ready');
+
+          setError(
+            'No speech detected. Please try speaking again.'
+          );
+
+          return;
+        }
+
+        if (
+          event.error ===
+          'not-allowed'
+        ) {
+          updateStatus('error');
+
+          setError(
+            'Microphone permission was denied. Please allow microphone access.'
+          );
+
+          return;
+        }
+
+        updateStatus('error');
+
+        setError(
+          `Microphone error: ${event.error}`
+        );
+      };
+
+    recognitionRef.current =
+      recognition;
+
+    return () => {
+      mountedRef.current =
+        false;
+
+      try {
+        recognition.stop();
+      } catch {}
+
+      stopAIPlayback();
+      stopAudioVisualizer();
+      stopRecording();
+
+      if (
+        playbackContextRef.current
+      ) {
+        playbackContextRef.current
+          .close()
+          .catch(() => {});
+      }
+
+      playbackContextRef.current =
+        null;
+
+      recognitionRef.current =
+        null;
+
+      isListeningRef.current =
+        false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (
+      !initialMessage ||
+      conversationStartedRef.current
+    ) {
+      return;
+    }
+
+    conversationStartedRef.current =
+      true;
+
+    transcriptRef.current.push({
+      sender: 'ai',
+      text: initialMessage,
+      timestamp:
+        new Date().toISOString()
+    });
+
+    const timer =
+      setTimeout(async () => {
+        await startRecording();
+        speakAI(initialMessage);
+      }, 500);
+
+    return () =>
+      clearTimeout(timer);
+  }, [initialMessage]);
+
+  useEffect(() => {
+    const canvas =
+      canvasRef.current;
+
+    if (!canvas) return;
+
+    const ctx =
+      canvas.getContext('2d');
+
+    let width = 0;
+    let height = 0;
+
+    const resize = () => {
+      const rect =
+        canvas.getBoundingClientRect();
+
+      const ratio =
+        Math.min(
+          window.devicePixelRatio ||
+            1,
+          1.5
+        );
+
+      width = rect.width;
+      height = rect.height;
+
+      canvas.width =
+        width * ratio;
+
+      canvas.height =
+        height * ratio;
+
+      ctx.setTransform(
+        ratio,
+        0,
+        0,
+        ratio,
+        0,
+        0
+      );
+    };
+
+    resize();
+
+    window.addEventListener(
+      'resize',
+      resize
+    );
+
+    const particles = [];
+    const particleCount = 2200;
+
+    for (
+      let i = 0;
+      i < particleCount;
+      i++
+    ) {
+      const angle =
+        Math.random() *
+        Math.PI *
+        2;
+
+      const distance =
+        Math.pow(
+          Math.random(),
+          0.72
+        );
+
+      particles.push({
+        angle,
+        distance,
+        size:
+          0.8 +
+          Math.random() * 1.4,
+        phase:
+          Math.random() *
+          Math.PI *
+          2,
+        frequency:
+          2 +
+          Math.random() * 7,
+        randomWave:
+          0.5 +
+          Math.random() * 1.5,
+        hue: Math.random()
+      });
+    }
+
+    const draw = (time) => {
+      ctx.clearRect(
+        0,
+        0,
+        width,
+        height
+      );
+
+      const centerX =
+        width / 2;
+
+      const centerY =
+        height / 2;
+
+      const currentStatus =
+        statusRef.current;
+
+      const currentAudio =
+        audioLevelRef.current;
+
+      const speaking =
+        currentStatus ===
+        'speaking';
+
+      const listening =
+        currentStatus ===
+        'listening';
+
+      const energy = speaking
+        ? 1
+        : listening
+        ? 0.35 +
+          currentAudio * 0.7
+        : 0.12;
+
+      const baseRadius =
+        Math.min(
+          width,
+          height
+        ) * 0.35;
+
+      const t =
+        time * 0.0012;
+
+      particles.forEach(
+        (particle) => {
+          const angle =
+            particle.angle;
+
+          const distance =
+            particle.distance;
+
+          const wave1 =
+            Math.sin(
+              angle * 2.5 +
+                t * 1.1 +
+                particle.phase
+            );
+
+          const wave2 =
+            Math.sin(
+              angle * 5.5 -
+                t * 1.45 +
+                particle.phase *
+                  1.7
+            );
+
+          const wave3 =
+            Math.sin(
+              angle *
+                particle.frequency +
+                t *
+                  particle.randomWave +
+                particle.phase
+            );
+
+          const wave4 =
+            Math.sin(
+              angle * 9 +
+                t * 0.75 +
+                particle.phase *
+                  2.3
+            );
+
+          const randomWave =
+            wave1 * 22 +
+            wave2 * 14 +
+            wave3 * 9 +
+            wave4 * 5;
+
+          const localWave =
+            Math.sin(
+              angle * 12 -
+                t * 1.8 +
+                particle.phase
+            ) * 6;
+
+          let distortion =
+            randomWave +
+            localWave;
+
+          if (speaking) {
+            distortion *=
+              1.25 +
+              currentAudio * 0.15;
+          } else if (listening) {
+            distortion *=
+              0.85 +
+              currentAudio * 0.8;
+          } else {
+            distortion *= 0.55;
+          }
+
+          const radius =
+            distance *
+              baseRadius +
+            distortion * energy;
+
+          const x =
+            centerX +
+            Math.cos(angle) *
+              radius;
+
+          const y =
+            centerY +
+            Math.sin(angle) *
+              radius;
+
+          const centerDensity =
+            1 - distance;
+
+          const opacity =
+            0.24 +
+            centerDensity *
+              0.7;
+
+          let r;
+          let g;
+          let b;
+
+          if (
+            particle.hue <
+            0.46
+          ) {
+            r = 55;
+            g = 190;
+            b = 255;
+          } else if (
+            particle.hue <
+            0.76
+          ) {
+            r = 105;
+            g = 105;
+            b = 255;
+          } else {
+            r = 225;
+            g = 75;
+            b = 245;
+          }
+
+          const pulse =
+            1 +
+            Math.sin(
+              t * 2.5 +
+                particle.phase
+            ) *
+              0.16;
+
+          const size =
+            particle.size *
+            pulse *
+            (speaking
+              ? 1.08
+              : 1);
+
+          ctx.beginPath();
+
+          ctx.arc(
+            x,
+            y,
+            size,
+            0,
+            Math.PI * 2
+          );
+
+          ctx.fillStyle =
+            `rgba(${r},${g},${b},${opacity})`;
+
+          ctx.fill();
+        }
+      );
+
+      animationRef.current =
+        requestAnimationFrame(
+          draw
+        );
+    };
+
+    animationRef.current =
+      requestAnimationFrame(
+        draw
+      );
+
+    return () => {
+      window.removeEventListener(
+        'resize',
+        resize
+      );
+
+      if (
+        animationRef.current
+      ) {
+        cancelAnimationFrame(
+          animationRef.current
+        );
+      }
+    };
+  }, []);
+
+  const handleEndInterview =
+    () => {
+      stopListening();
+
+      stopAIPlayback();
+
+      window.speechSynthesis?.cancel();
+
+      stopAudioVisualizer();
+
+      stopRecording();
+
+      if (onEndInterview) {
+        onEndInterview(
+          transcriptRef.current
+        );
+      }
+    };
+
+  const handleVisualizerClick =
+    () => {
+      if (
+        aiSpeaking ||
+        status === 'thinking'
+      ) {
+        return;
+      }
+
+      if (
+        isListeningRef.current
+      ) {
+        stopListening();
+        updateStatus('ready');
+      } else {
+        startListening();
+      }
+    };
+
+  const getStatusText = () => {
+    if (status === 'speaking') {
+      return 'AI is speaking...';
+    }
+
+    if (status === 'listening') {
+      return 'Listening...';
+    }
+
+    if (status === 'thinking') {
+      return 'Thinking...';
+    }
+
+    if (status === 'error') {
+      return 'Voice error';
+    }
+
+    return 'Your turn';
+  };
+
+  return (
+    <div
+      style={{
+        minHeight: '78vh',
+        width: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '1rem'
+      }}
+    >
+      <div
+        style={{
+          width: '100%',
+          maxWidth: '1100px',
+          minHeight: '74vh',
+          borderRadius: '30px',
+          position: 'relative',
+          overflow: 'hidden',
+          background:
+            'radial-gradient(circle at center, rgba(30,25,75,0.3), rgba(5,8,20,0.96) 60%)',
+          border:
+            '1px solid rgba(130,120,255,0.15)',
+          boxShadow:
+            '0 30px 100px rgba(0,0,0,0.45)',
+          display: 'flex',
+          flexDirection: 'column'
+        }}
+      >
+        <div
+          style={{
+            padding:
+              '1.5rem 2rem',
+            display: 'flex',
+            justifyContent:
+              'space-between',
+            alignItems: 'center',
+            position: 'relative',
+            zIndex: 5
+          }}
+        >
+          <div>
+            <div
+              style={{
+                color: '#c084fc',
+                fontSize: '0.68rem',
+                fontWeight: 800,
+                letterSpacing:
+                  '0.2em'
+              }}
+            >
+              VOICE INTERVIEW
+            </div>
+
+            <div
+              style={{
+                color: '#f8fafc',
+                fontSize: '1.25rem',
+                fontWeight: 700,
+                marginTop:
+                  '0.35rem'
+              }}
+            >
+              AI Interviewer
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              padding:
+                '0.55rem 0.85rem',
+              borderRadius:
+                '999px',
+              background:
+                'rgba(255,255,255,0.04)',
+              border:
+                '1px solid rgba(255,255,255,0.08)',
+              color: '#cbd5e1',
+              fontSize:
+                '0.75rem'
+            }}
+          >
+            <span
+              style={{
+                width: '7px',
+                height: '7px',
+                borderRadius:
+                  '50%',
+                background:
+                  status === 'error'
+                    ? '#ef4444'
+                    : '#22c55e',
+                boxShadow:
+                  status === 'error'
+                    ? '0 0 10px rgba(239,68,68,0.8)'
+                    : '0 0 10px rgba(34,197,94,0.8)'
+              }}
+            />
+
+            Question {questionCount}
+          </div>
+        </div>
+
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection:
+              'column',
+            alignItems:
+              'center',
+            justifyContent:
+              'center',
+            position:
+              'relative'
+          }}
+        >
+          {recordingMode ===
+            'video' && (
+            <div
+              style={{
+                position:
+                  'absolute',
+                top: '1rem',
+                right: '1.5rem',
+                width:
+                  '180px',
+                height:
+                  '125px',
+                borderRadius:
+                  '18px',
+                overflow:
+                  'hidden',
+                background:
+                  '#050814',
+                border:
+                  '1px solid rgba(255,255,255,0.16)',
+                boxShadow:
+                  '0 15px 40px rgba(0,0,0,0.5)',
+                zIndex: 10
+              }}
+            >
+              <video
+                ref={videoRef}
+                autoPlay
+                muted
+                playsInline
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  transform:
+                    'scaleX(-1)',
+                  display:
+                    'block'
+                }}
+              />
+
+              <div
+                style={{
+                  position:
+                    'absolute',
+                  left: '9px',
+                  bottom: '9px',
+                  padding:
+                    '4px 8px',
+                  borderRadius:
+                    '999px',
+                  background:
+                    'rgba(0,0,0,0.55)',
+                  border:
+                    '1px solid rgba(255,255,255,0.12)',
+                  color: '#fff',
+                  fontSize:
+                    '0.65rem',
+                  fontWeight: 700,
+                  backdropFilter:
+                    'blur(8px)'
+                }}
+              >
+                You
+              </div>
+
+              <div
+                style={{
+                  position:
+                    'absolute',
+                  right: '9px',
+                  top: '9px',
+                  width: '8px',
+                  height: '8px',
+                  borderRadius:
+                    '50%',
+                  background:
+                    '#22c55e',
+                  boxShadow:
+                    '0 0 10px rgba(34,197,94,0.9)'
+                }}
+              />
+            </div>
+          )}
+
+          <div
+            style={{
+              position:
+                'relative',
+              width: '520px',
+              height: '520px',
+              maxWidth: '92vw',
+              maxHeight: '58vh',
+              display: 'flex',
+              alignItems:
+                'center',
+              justifyContent:
+                'center'
+            }}
+          >
+            <canvas
+              ref={canvasRef}
+              onClick={
+                handleVisualizerClick
+              }
+              style={{
+                width: '100%',
+                height: '100%',
+                cursor:
+                  aiSpeaking ||
+                  status ===
+                    'thinking'
+                    ? 'default'
+                    : 'pointer'
+              }}
+            />
+          </div>
+
+          <div
+            style={{
+              textAlign:
+                'center',
+              marginTop:
+                '-1.5rem',
+              position:
+                'relative',
+              zIndex: 3
+            }}
+          >
+            <div
+              style={{
+                color:
+                  status ===
+                  'speaking'
+                    ? '#d946ef'
+                    : status ===
+                      'listening'
+                    ? '#38bdf8'
+                    : '#c4b5fd',
+                fontSize:
+                  '1.45rem',
+                fontWeight:
+                  800,
+                textShadow:
+                  '0 0 25px rgba(168,85,247,0.25)'
+              }}
+            >
+              {getStatusText()}
+            </div>
+
+            <div
+              style={{
+                color:
+                  '#94a3b8',
+                fontSize:
+                  '0.82rem',
+                marginTop:
+                  '0.55rem'
+              }}
+            >
+              {status ===
+              'speaking'
+                ? 'Listen carefully to the interviewer'
+                : status ===
+                  'listening'
+                ? 'Speak naturally'
+                : status ===
+                  'thinking'
+                ? 'Processing your response'
+                : 'Speak when you are ready'}
+            </div>
+          </div>
+
+          {error && (
+            <div
+              style={{
+                marginTop:
+                  '1rem',
+                maxWidth:
+                  '600px',
+                padding:
+                  '0.7rem 1rem',
+                borderRadius:
+                  '12px',
+                background:
+                  'rgba(239,68,68,0.08)',
+                border:
+                  '1px solid rgba(239,68,68,0.2)',
+                color:
+                  '#fca5a5',
+                fontSize:
+                  '0.75rem',
+                textAlign:
+                  'center'
+              }}
+            >
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div
+          style={{
+            padding:
+              '1.25rem 2rem 1.5rem',
+            display:
+              'flex',
+            justifyContent:
+              'center',
+            alignItems:
+              'center',
+            gap: '1rem'
+          }}
+        >
+          <button
+            type="button"
+            onClick={
+              handleVisualizerClick
+            }
+            disabled={
+              aiSpeaking ||
+              status ===
+                'thinking'
+            }
+            style={{
+              width: '54px',
+              height: '54px',
+              borderRadius:
+                '50%',
+              border:
+                '1px solid rgba(255,255,255,0.12)',
+              background:
+                status ===
+                'listening'
+                  ? 'rgba(56,189,248,0.12)'
+                  : 'rgba(255,255,255,0.04)',
+              color: '#fff',
+              cursor:
+                aiSpeaking ||
+                status ===
+                  'thinking'
+                  ? 'not-allowed'
+                  : 'pointer',
+              opacity:
+                aiSpeaking ||
+                status ===
+                  'thinking'
+                  ? 0.45
+                  : 1,
+              fontSize:
+                '1.15rem'
+            }}
+          >
+            🎤
+          </button>
+
+          <button
+            type="button"
+            onClick={
+              handleEndInterview
+            }
+            style={{
+              padding:
+                '0.85rem 1.7rem',
+              borderRadius:
+                '999px',
+              border:
+                '1px solid rgba(236,72,153,0.35)',
+              background:
+                'linear-gradient(135deg, rgba(126,34,206,0.3), rgba(236,72,153,0.18))',
+              color:
+                '#f8fafc',
+              fontWeight:
+                700,
+              cursor:
+                'pointer',
+              boxShadow:
+                '0 0 25px rgba(236,72,153,0.08)'
+            }}
+          >
+            End Interview
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default VoiceInterview;

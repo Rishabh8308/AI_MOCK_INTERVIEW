@@ -1,5 +1,5 @@
 console.log('[SERVER] Starting...');
-
+import ttsRoutes from './routes/tts.js';
 import express from 'express';
 import cors from 'cors';
 import apiRoutes from './routes/api.js';
@@ -25,7 +25,7 @@ app.get('/api/health', (req, res) => {
 });
 
 app.use('/api', apiRoutes);
-
+app.use('/api/tts', ttsRoutes);
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {

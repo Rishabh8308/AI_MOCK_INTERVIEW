@@ -13,6 +13,7 @@
     "build": "npm run build --prefix frontend"
   },
   "dependencies": {
+    "@google/genai": "^2.17.1",
     "@google/generative-ai": "^0.24.1",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
