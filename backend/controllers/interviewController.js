@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { fetchGitHubProfile } from '../services/githubService.js';
 import { fetchLeetCodeProfile } from '../services/leetcodeService.js';
+import { supabase } from '../lib/supabase.js';
 
 const sessions = new Map();
 
@@ -16,13 +17,26 @@ const buildSystemPrompt = (
     assessmentMode
 ) => {
     const personaGuides = {
-        Friendly: "You are a very warm, encouraging, and friendly HR recruiter. You often give slight hints if the candidate gets totally stuck and praise them generously.",
-        Strict: "You are a notoriously strict and blunt engineering manager at a FAANG company. You push for deep absolute correctness, heavily critique pseudo-code, and rarely show emotion.",
-        Guru: "You are an algorithmic guru obsessed with Time/Space complexity and perfect system design. You always ask follow-up questions about micro-optimizations.",
-        "FAANG Style": "You are a senior tech interviewer at a top-tier firm like Google or Amazon. You focus on edge cases, scalability, and deep technical trade-offs. You are professional but very demanding.",
-        "Startup Style": "You are a fast-paced CTO of a high-growth startup. You care about speed, flexibility, and practical problem-solving. You might jump between topics quickly.",
-        "Corporate Style": "You are a traditional corporate hiring manager. You focus on culture fit, long-term stability, and standard industry best practices.",
-        Professional: "You are a highly professional interviewer. You communicate clearly, remain neutral, and evaluate the candidate through realistic interview questions."
+        Friendly:
+            "You are a very warm, encouraging, and friendly HR recruiter. You often give slight hints if the candidate gets totally stuck and praise them generously.",
+
+        Strict:
+            "You are a notoriously strict and blunt engineering manager at a FAANG company. You push for deep absolute correctness, heavily critique pseudo-code, and rarely show emotion.",
+
+        Guru:
+            "You are an algorithmic guru obsessed with Time/Space complexity and perfect system design. You always ask follow-up questions about micro-optimizations.",
+
+        "FAANG Style":
+            "You are a senior tech interviewer at a top-tier firm like Google or Amazon. You focus on edge cases, scalability, and deep technical trade-offs. You are professional but very demanding.",
+
+        "Startup Style":
+            "You are a fast-paced CTO of a high-growth startup. You care about speed, flexibility, and practical problem-solving. You might jump between topics quickly.",
+
+        "Corporate Style":
+            "You are a traditional corporate hiring manager. You focus on culture fit, long-term stability, and standard industry best practices.",
+
+        Professional:
+            "You are a highly professional interviewer. You communicate clearly, remain neutral, and evaluate the candidate through realistic interview questions."
     };
 
     const selectedPersona =
@@ -67,29 +81,33 @@ Your task is to conduct a natural spoken interview for the candidate.
 
 ### INTERVIEW FOCUS
 
-${interview_type === 'General / HR'
-    ? 'Focus mainly on introduction, motivation, career goals, workplace preferences, strengths, weaknesses, and general professional questions.'
-    : interview_type === 'Behavioral'
-    ? 'Focus mainly on behavioral and situational questions. Encourage the candidate to answer using real experiences and the STAR structure.'
-    : interview_type === 'Technical'
-    ? `Focus mainly on technical concepts, problem solving, practical engineering decisions, and verbal explanations related to ${skills}.`
-    : `Use a balanced mixture of general, behavioral, and technical questions related to the role and ${skills}.`
+${
+    interview_type === 'General / HR'
+        ? 'Focus mainly on introduction, motivation, career goals, workplace preferences, strengths, weaknesses, and general professional questions.'
+        : interview_type === 'Behavioral'
+        ? 'Focus mainly on behavioral and situational questions. Encourage the candidate to answer using real experiences and the STAR structure.'
+        : interview_type === 'Technical'
+        ? `Focus mainly on technical concepts, problem solving, practical engineering decisions, and verbal explanations related to ${skills}.`
+        : `Use a balanced mixture of general, behavioral, and technical questions related to the role and ${skills}.`
 }
 
 ### PRESSURE MODE
 
-${pressureMode
-    ? 'Occasionally introduce challenging follow-up questions, time-pressure scenarios, or unexpected situations. Remain professional rather than hostile.'
-    : 'Maintain a normal professional interview environment without intentionally increasing pressure.'
+${
+    pressureMode
+        ? 'Occasionally introduce challenging follow-up questions, time-pressure scenarios, or unexpected situations. Remain professional rather than hostile.'
+        : 'Maintain a normal professional interview environment without intentionally increasing pressure.'
 }
 
-${resumeText
-    ? `### CANDIDATE RESUME CONTEXT
+${
+    resumeText
+        ? `### CANDIDATE RESUME CONTEXT
 Use the candidate's resume to personalize questions when relevant:
 
 ${resumeText}
 ---`
-    : ''}
+        : ''
+}
 
 ### INTERVIEW BEHAVIOR
 
@@ -180,8 +198,7 @@ SCORE_JSON:
             tagProblemCounts
         } = leetcodeData;
 
-        const stats =
-            submitStats.acSubmissionNum;
+        const stats = submitStats.acSubmissionNum;
 
         const easy =
             stats.find(
@@ -227,100 +244,105 @@ SCORE_JSON:
                 .join(", ");
 
         leetcodeAnalysis = `
-### 🔹 LEETCODE PROFILE ANALYSIS
+### LEETCODE PROFILE ANALYSIS
+
 The candidate's LeetCode profile shows:
-* Total Solved: ${totalSolved} (Easy: ${easy}, Medium: ${medium}, Hard: ${hard})
-* Strongest Topics (Most solved): ${strongest || "Not enough data"}
-* Weakest Topics (Fewest solved): ${weakest || "Focus here for challenges"}
+
+* Total Solved: ${totalSolved}
+* Easy: ${easy}
+* Medium: ${medium}
+* Hard: ${hard}
+* Strongest Topics: ${strongest || "Not enough data"}
+* Weakest Topics: ${weakest || "Not enough data"}
 * Ranking: ${profile.ranking || "N/A"}
 ---`;
     }
 
     const roundInstructions = `
-### 🔹 INTERVIEW STRUCTURE (3 PHASES)
-You must conduct the interview in 3 distinct phases, moving from one to the next automatically:
+### INTERVIEW STRUCTURE
 
-1. PHASE 1: DSA (Algorithms & Logic) - Focus on data structures, algorithmic problem-solving, and Big O complexity. Use the candidate's LeetCode analysis to tailor the difficulty.
-2. PHASE 2: Technical Depth - Transition to practical knowledge of their specified skills (${skills}). Ask about framework internals, best practices, and real-world system implementation.
-3. PHASE 3: Behavioral & Team Skills - Conclude with soft-skill evaluation using the STAR method.
+You must conduct the interview in 3 distinct phases:
 
-You MUST explicitly announce when you are transitioning between phases.`;
+1. PHASE 1: DSA
+2. PHASE 2: Technical Depth
+3. PHASE 3: Behavioral & Team Skills
+
+Move between phases automatically and explicitly announce transitions.
+`;
 
     return `You are an AI-powered mock interviewer simulating a real-world interview experience.
+
 ${selectedPersona}
 
 Your task is to conduct a role-specific interview, evaluate the candidate in real time, and provide structured feedback at the end.
 
 ---
-### 🔹 SESSION DETAILS
+### SESSION DETAILS
+
 * Role: ${role}
 * Experience Level: ${experience_level}
 * Skills: ${skills}
 * Interview Type: ${interview_type}
-* Structure: 3-Phase Comprehensive (DSA -> Technical -> Behavioral)
+* Structure: 3-Phase Comprehensive
 ${leetcodeAnalysis}
 ${roundInstructions}
-* Pressure Mode: ${pressureMode ? 'ENABLED (Actively challenge the candidate with sudden follow-up questions, time-pressure scenarios, or system-failure hypotheticals)' : 'DISABLED'}
 
-${resumeText ? `### 🔹 CANDIDATE RESUME CONTEXT
-The candidate has provided their resume for context. Please draw upon this history to ask highly personalized, tailored questions bridging their past experience with this target role:
+* Pressure Mode:
+${
+    pressureMode
+        ? 'ENABLED'
+        : 'DISABLED'
+    }
+
+${
+    resumeText
+        ? `### CANDIDATE RESUME CONTEXT
 
 ${resumeText}
----` : ''}
+---`
+        : ''
+}
 
-### 🔹 INTERVIEW INSTRUCTIONS
+### INTERVIEW INSTRUCTIONS
+
 1. Start with a brief professional introduction.
 2. Ask one question at a time.
-3. Generate questions specific to both the selected role and the provided resume.
-4. If it is a Technical interview, ask them to write code or explain algorithms.
-5. Keep your tone strictly aligned with your Persona description.
-6. If Pressure Mode is enabled, occasionally throw a curveball or high-stress hypothetical scenario related to their previous answer.
+3. Generate questions specific to the role and resume.
+4. If technical, ask the candidate to write code or explain algorithms.
+5. Keep your tone aligned with the selected persona.
+6. If pressure mode is enabled, occasionally introduce challenging scenarios.
 
-### 🔹 REAL-TIME INTERVIEW BEHAVIOR
+### REAL-TIME INTERVIEW BEHAVIOR
 
 After each user response:
 
-1. Briefly acknowledge the answer in 1 sentence.
-2. If necessary, give ONE concise piece of feedback.
-3. Ask the next interview question.
-4. Do NOT provide numerical scores.
-5. Do NOT display Communication, Technical Depth, Confidence, Problem Solving, or STAR scores.
-6. Do NOT display an Evaluation section.
-7. Do NOT display Waiting for input.
-8. Do NOT reveal internal scoring criteria.
-9. Keep the conversation natural and professional.
-10. Ask only ONE question at a time.
+1. Briefly acknowledge the answer.
+2. Give concise feedback if necessary.
+3. Ask the next question.
+4. Do not provide numerical scores during the interview.
+5. Do not reveal evaluation criteria.
+6. Ask only ONE question at a time.
 
-The interview should feel like a real human interview, not an evaluation form.
-
-### 🔹 MINIMUM INTERVIEW REQUIREMENT
+### MINIMUM INTERVIEW REQUIREMENT
 
 A meaningful final evaluation requires sufficient interview data.
 
-Do not assign confident numerical scores when the candidate has answered fewer than 5 questions.
+Do not assign confident numerical scores when fewer than 5 questions have been answered.
 
-If the interview ends before 5 answered questions:
+### FINAL EVALUATION
 
-- Clearly state that the interview was too short for a reliable evaluation.
-- Do not give inflated or arbitrary scores.
-- Use "Insufficient data" instead of numerical scores where appropriate.
-- Only evaluate skills that were actually demonstrated.
-- Do not make assumptions about abilities that were not tested.
-
-Never give high scores simply because the candidate answered one question correctly.
-
-### 🔹 FOR FINAL EVALUATION REQUEST ONLY
-
-If the user says they want to "END INTERVIEW", you MUST output the final evaluation strictly formatted as follows:
+If the user ends the interview, generate a professional final report.
 
 END_REPORT_START
-1. Scores (out of 10): Communication: X/10, Technical Knowledge: X/10, Problem Solving: X/10, Confidence: X/10
-2. Strengths (3-4 points)
-3. Areas for Improvement (3-4 points)
-4. STAR Method Performance: Assessment of their behavioral storytelling structure.
-5. Pressure Performance: How well did they handle the high-stress curveballs?
-6. Personalized Tips (4-6 actionable suggestions)
-7. Model Answer: Rewrite one of their weak responses as an ideal answer.
+
+1. Scores
+2. Strengths
+3. Areas for Improvement
+4. STAR Method Performance
+5. Pressure Performance
+6. Personalized Tips
+7. Model Answer
+
 END_REPORT_END
 `;
 };
@@ -349,33 +371,17 @@ export const startSession = async (req, res) => {
                 ? 'voice'
                 : 'technical';
 
-        let githubAnalysis = "";
-
         if (
             githubUsername &&
             currentAssessmentMode === 'technical'
         ) {
             try {
-                const ghProfile =
-                    await fetchGitHubProfile(
-                        githubUsername
-                    );
-
-                githubAnalysis = `
-### 🔹 GITHUB PROJECT ANALYSIS
-The candidate has several public projects on GitHub:
-${ghProfile.repositories
-    .map(
-        repo =>
-            `- **${repo.name}** (${repo.language}): ${repo.description || 'No description provided.'}`
-    )
-    .join('\n')}
-
-INSTRUCTION: During PHASE 2 (Technical Depth), reference at least one of these projects and ask about a specific design decision, a challenge they faced, or how they might scale a particular feature.
----`;
+                await fetchGitHubProfile(
+                    githubUsername
+                );
             } catch (err) {
                 console.warn(
-                    "GitHub fetch failed:",
+                    'GitHub fetch failed:',
                     err.message
                 );
             }
@@ -428,7 +434,7 @@ INSTRUCTION: During PHASE 2 (Technical Depth), reference at least one of these p
                     pdfData.text;
             } catch (err) {
                 console.error(
-                    "Error parsing resume:",
+                    'Error parsing resume:',
                     err
                 );
             }
@@ -455,14 +461,14 @@ INSTRUCTION: During PHASE 2 (Technical Depth), reference at least one of these p
         const model =
             genAI.getGenerativeModel({
                 model:
-                    "gemini-3.1-flash-lite"
+                    'gemini-3.1-flash-lite'
             });
 
         const chat =
             model.startChat({
                 history: [
                     {
-                        role: "user",
+                        role: 'user',
                         parts: [
                             {
                                 text:
@@ -471,13 +477,11 @@ INSTRUCTION: During PHASE 2 (Technical Depth), reference at least one of these p
                         ]
                     },
                     {
-                        role: "model",
+                        role: 'model',
                         parts: [
                             {
                                 text:
-                                    currentAssessmentMode === 'voice'
-                                        ? "Understood. I am ready to conduct the voice interview."
-                                        : "Understood. I have reviewed your requirements and I am ready to conduct the interview. Please let me know when you are ready to start, or simply say hello."
+                                    'Understood. I am ready to conduct the interview.'
                             }
                         ]
                     }
@@ -504,7 +508,7 @@ INSTRUCTION: During PHASE 2 (Technical Depth), reference at least one of these p
 
         const initialMessages = [
             {
-                role: "user",
+                role: 'user',
                 parts: [
                     {
                         text:
@@ -513,18 +517,16 @@ INSTRUCTION: During PHASE 2 (Technical Depth), reference at least one of these p
                 ]
             },
             {
-                role: "model",
+                role: 'model',
                 parts: [
                     {
                         text:
-                            currentAssessmentMode === 'voice'
-                                ? "Understood. I am ready to conduct the voice interview."
-                                : "Understood. I have reviewed your requirements and I am ready to conduct the interview."
+                            'Understood. I am ready to conduct the interview.'
                     }
                 ]
             },
             {
-                role: "user",
+                role: 'user',
                 parts: [
                     {
                         text:
@@ -533,7 +535,7 @@ INSTRUCTION: During PHASE 2 (Technical Depth), reference at least one of these p
                 ]
             },
             {
-                role: "model",
+                role: 'model',
                 parts: [
                     {
                         text:
@@ -550,19 +552,31 @@ INSTRUCTION: During PHASE 2 (Technical Depth), reference at least one of these p
                 genAI,
                 messages:
                     initialMessages,
+
                 questionsAsked: 1,
+
                 assessmentMode:
                     currentAssessmentMode,
+
                 recordingEnabled:
                     recordingEnabled === 'true' ||
                     recordingEnabled === true,
+
                 role,
+
                 experienceLevel,
+
+                skills,
+
                 interviewType,
+
                 persona,
+
                 pressureMode:
                     pressureMode === 'true' ||
-                    pressureMode === true
+                    pressureMode === true,
+
+                sessionMode
             }
         );
 
@@ -571,19 +585,21 @@ INSTRUCTION: During PHASE 2 (Technical Depth), reference at least one of these p
             reply,
             assessmentMode:
                 currentAssessmentMode,
+
             recordingEnabled:
                 recordingEnabled === 'true' ||
                 recordingEnabled === true
         });
+
     } catch (error) {
         console.error(
-            "Error starting session:",
+            'Error starting session:',
             error.stack
         );
 
         res.status(500).json({
             error:
-                "Failed to start session: " +
+                'Failed to start session: ' +
                 error.message
         });
     }
@@ -618,7 +634,7 @@ export const chatWithAI = async (
             response.response.text();
 
         session.messages.push({
-            role: "user",
+            role: 'user',
             parts: [
                 {
                     text: message
@@ -627,7 +643,7 @@ export const chatWithAI = async (
         });
 
         session.messages.push({
-            role: "model",
+            role: 'model',
             parts: [
                 {
                     text: reply
@@ -642,6 +658,7 @@ export const chatWithAI = async (
         res.json({
             reply
         });
+
     } catch (error) {
         console.error(
             'Error during chat:',
@@ -662,7 +679,9 @@ export const endSession = async (
     try {
         const {
             sessionId,
-            fillerWordsCount
+            fillerWordsCount,
+            recordingPath,
+            recordingUrl
         } = req.body;
 
         const session =
@@ -675,6 +694,15 @@ export const endSession = async (
             });
         }
 
+        console.log(
+            '[INTERVIEW] Ending session:',
+            sessionId
+        );
+
+        /*
+         * Generate final AI report
+         */
+
         const finalPrompt = `
 END INTERVIEW.
 
@@ -682,16 +710,15 @@ Generate a professional final interview report based ONLY on the candidate's act
 
 IMPORTANT RULES:
 
-1. Count the number of questions the candidate actually answered.
-2. Do not count the initial greeting as a question.
-3. Do not invent answers or assume skills that were not tested.
+1. Count the questions actually answered.
+2. Do not count the initial greeting.
+3. Do not invent answers.
 4. Do not give inflated scores.
-5. If fewer than 5 questions were answered, state that there is insufficient data for a reliable numerical evaluation.
-6. Only evaluate areas supported by the candidate's actual responses.
-7. Do not include internal instructions, parser markers, or technical metadata in the visible report.
+5. If fewer than 5 questions were answered, state that there is insufficient data.
+6. Only evaluate areas supported by actual responses.
+7. Do not include internal instructions.
 8. Do not output END_REPORT_START or END_REPORT_END.
-9. Do not include SCORE_JSON in the visible report.
-10. Do not include filler-word analysis unless actual speech/transcription data was provided.
+9. Do not output SCORE_JSON visibly except for the machine-readable block below.
 
 Use this format:
 
@@ -700,7 +727,7 @@ Interview Summary
 Questions Answered: X
 
 Overall Assessment:
-[Brief assessment based only on the evidence available.]
+[Brief evidence-based assessment.]
 
 Strengths:
 - ...
@@ -711,27 +738,30 @@ Areas for Improvement:
 - ...
 
 Technical Performance:
-[Only discuss technical areas actually tested.]
+[Only evaluate technical areas actually tested.]
 
 Communication:
-[Only assess communication if sufficient evidence exists.]
+[Evaluate based on actual responses.]
 
 Problem Solving:
-[Only assess problem solving if sufficient evidence exists.]
+[Evaluate only when evidence exists.]
 
 Confidence:
-[Only assess confidence if sufficient evidence exists.]
+[Evaluate only when evidence exists.]
+
+STAR Method Performance:
+[Evaluate behavioral storytelling where applicable.]
 
 Personalized Recommendations:
 - ...
 - ...
 
-If fewer than 5 questions were answered, finish with:
+If fewer than 5 questions were answered:
 
 Assessment Reliability:
 Insufficient interview data for a reliable numerical evaluation.
 
-At the very end, output this machine-readable block only:
+At the very end:
 
 SCORE_JSON:
 {
@@ -772,17 +802,156 @@ SCORE_JSON:
                     );
 
                 reply =
-                    reply.replace(
-                        /SCORE_JSON:\s*\{[\s\S]*?\}/,
-                        ''
-                    ).trim();
+                    reply
+                        .replace(
+                            /SCORE_JSON:\s*\{[\s\S]*?\}/,
+                            ''
+                        )
+                        .trim();
             }
+
         } catch (parseErr) {
             console.error(
-                "Failed to parse AI scores:",
+                '[AI] Failed to parse scores:',
                 parseErr
             );
         }
+
+        /*
+         * Prepare transcript.
+         *
+         * The first two messages are internal
+         * system/setup messages, so we don't save
+         * those in the interview transcript.
+         */
+
+        const transcript =
+            (session.messages || [])
+                .slice(2)
+                .map(message => ({
+                    role:
+                        message.role,
+                    text:
+                        message.parts?.[0]?.text || ''
+                }));
+
+        /*
+         * Voice interview:
+         *
+         * recordingPath / recordingUrl comes
+         * from the frontend after the recording
+         * has been uploaded to Supabase Storage.
+         *
+         * Normal interview:
+         *
+         * no recording exists, therefore NULL.
+         */
+
+        const isVoiceInterview =
+            session.assessmentMode === 'voice';
+
+        const recordingMode =
+            isVoiceInterview
+                ? 'voice'
+                : 'normal';
+
+        const finalRecordingPath =
+            isVoiceInterview
+                ? (
+                    recordingPath ||
+                    recordingUrl ||
+                    null
+                )
+                : null;
+
+        const fillerCount =
+            isVoiceInterview &&
+            Number.isFinite(
+                Number(fillerWordsCount)
+            )
+                ? Number(fillerWordsCount)
+                : 0;
+
+        /*
+         * Save complete interview
+         * into AI_MOCK.
+         */
+
+        console.log(
+            '[DB] Saving interview to AI_MOCK...'
+        );
+
+        const { data, error } =
+            await supabase
+                .from('AI_MOCK')
+                .insert({
+                    session_id:
+                        sessionId,
+
+                    recording_mode:
+                        recordingMode,
+
+                    recording_path:
+                        finalRecordingPath,
+
+                    transcript:
+                        transcript,
+
+                    filler_words_count:
+                        fillerCount,
+
+                    final_report:
+                        reply,
+
+                    role:
+                        session.role || null,
+
+                    experience_level:
+                        session.experienceLevel || null,
+
+                    skills:
+                        session.skills || null,
+
+                    interview_type:
+                        session.interviewType || null,
+
+                    persona:
+                        session.persona || null,
+
+                    pressure_mode:
+                        session.pressureMode || false
+                })
+                .select()
+                .single();
+
+        if (error) {
+            console.error(
+                '[DB] AI_MOCK insert failed:',
+                error
+            );
+
+            return res.status(500).json({
+                error:
+                    'Interview report generated, but failed to save it to AI_MOCK.',
+
+                details:
+                    error.message,
+
+                finalReport:
+                    reply,
+
+                scores
+            });
+        }
+
+        console.log(
+            '[DB] Interview saved successfully:',
+            data.id
+        );
+
+        /*
+         * Session is no longer needed.
+         */
 
         sessions.delete(
             sessionId
@@ -791,8 +960,13 @@ SCORE_JSON:
         res.json({
             finalReport:
                 reply,
-            scores
+
+            scores,
+
+            savedInterview:
+                data
         });
+
     } catch (error) {
         console.error(
             'Error ending session:',
@@ -828,6 +1002,7 @@ export const getLeetCodeProfile = async (
         }
 
         res.json(profile);
+
     } catch (error) {
         res.status(500).json({
             error:
@@ -851,6 +1026,7 @@ export const getGitHubProfileData = async (
             );
 
         res.json(profile);
+
     } catch (error) {
         res.status(500).json({
             error:

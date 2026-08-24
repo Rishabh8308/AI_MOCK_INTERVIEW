@@ -49,6 +49,10 @@ function App() {
     );
   };
 
+  // =========================================================
+  // START NORMAL INTERVIEW
+  // =========================================================
+
   const handleStartSession = (
     sid,
     replyStr,
@@ -64,6 +68,10 @@ function App() {
 
     setView('chat');
   };
+
+  // =========================================================
+  // START VOICE INTERVIEW
+  // =========================================================
 
   const handleStartVoiceSession = (
     sid,
@@ -81,6 +89,10 @@ function App() {
 
     setView('voice');
   };
+
+  // =========================================================
+  // END NORMAL INTERVIEW
+  // =========================================================
 
   const handleEndSession = async (
     allMessages
@@ -120,24 +132,53 @@ function App() {
         }
       });
 
+      console.log(
+        'Ending normal interview...'
+      );
+
+      console.log(
+        'Session ID:',
+        sessionId
+      );
+
+      console.log(
+        'Filler words:',
+        totalFillers
+      );
+
+      // Normal interview does NOT have a recording.
+      const recordingPath = null;
+
       const response = await fetch(
         `${API_URL}/api/end`,
         {
           method: 'POST',
+
           headers: {
             'Content-Type':
               'application/json'
           },
+
           body: JSON.stringify({
             sessionId,
+
             fillerWordsCount:
-              totalFillers
+              totalFillers,
+
+            recordingPath
           })
         }
       );
 
       const data =
         await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+          'Failed to generate evaluation report.'
+        );
+      }
 
       if (data.finalReport) {
         const fillerAnalysis =
@@ -151,7 +192,12 @@ function App() {
         );
 
         setView('report');
+      } else {
+        throw new Error(
+          'The backend did not return a final report.'
+        );
       }
+
     } catch (error) {
       console.error(
         'Failed to end session',
@@ -164,8 +210,26 @@ function App() {
     }
   };
 
+  // =========================================================
+  // END VOICE INTERVIEW
+  // =========================================================
+  //
+  // recordingPath is optional for now.
+  //
+  // VoiceInterview will eventually call:
+  //
+  // onEndInterview(
+  //   voiceTranscript,
+  //   recordingPath
+  // )
+  //
+  // The recordingPath will be the Supabase Storage path/URL.
+  //
+  // =========================================================
+
   const handleEndVoiceInterview = async (
-    voiceTranscript
+    voiceTranscript,
+    recordingPath = null
   ) => {
     try {
       const fillerWords = [
@@ -225,18 +289,35 @@ function App() {
         totalFillers
       );
 
+      console.log(
+        'Recording path:',
+        recordingPath
+      );
+
+      // =====================================================
+      // SEND EVERYTHING TO BACKEND
+      // =====================================================
+
       const response = await fetch(
         `${API_URL}/api/end`,
         {
           method: 'POST',
+
           headers: {
             'Content-Type':
               'application/json'
           },
+
           body: JSON.stringify({
             sessionId,
+
             fillerWordsCount:
-              totalFillers
+              totalFillers,
+
+            // This will be saved into
+            // AI_MOCK.recording_path
+            recordingPath:
+              recordingPath || null
           })
         }
       );
@@ -247,7 +328,7 @@ function App() {
       if (!response.ok) {
         throw new Error(
           data.error ||
-            'Failed to generate evaluation report.'
+          'Failed to generate evaluation report.'
         );
       }
 
@@ -268,6 +349,7 @@ function App() {
           'The backend did not return a final report.'
         );
       }
+
     } catch (error) {
       console.error(
         'Failed to generate voice evaluation:',
@@ -279,6 +361,10 @@ function App() {
       );
     }
   };
+
+  // =========================================================
+  // UI
+  // =========================================================
 
   return (
     <Routes>
@@ -336,6 +422,8 @@ function App() {
                   </h1>
                 )}
 
+              {/* SETUP */}
+
               {view === 'setup' && (
                 <Setup
                   onStart={
@@ -346,6 +434,8 @@ function App() {
                   }
                 />
               )}
+
+              {/* NORMAL INTERVIEW */}
 
               {view === 'chat' && (
                 <Chat
@@ -365,6 +455,8 @@ function App() {
                 />
               )}
 
+              {/* VOICE INTERVIEW */}
+
               {view === 'voice' && (
                 <VoiceInterview
                   sessionId={sessionId}
@@ -379,6 +471,8 @@ function App() {
                   }
                 />
               )}
+
+              {/* REPORT */}
 
               {view === 'report' && (
                 <EvaluationReport

@@ -6,50 +6,132 @@ const VoiceInterview = ({
   recordingMode = 'audio',
   onEndInterview
 }) => {
-  const API_URL = import.meta.env.VITE_API_URL || '';
+  const API_URL =
+    import.meta.env.VITE_API_URL || '';
 
-  const [status, setStatus] = useState('idle');
-  const [aiSpeaking, setAiSpeaking] = useState(false);
-  const [error, setError] = useState('');
-  const [questionCount, setQuestionCount] = useState(1);
-  const [audioLevel, setAudioLevel] = useState(0);
+  const [status, setStatus] =
+    useState('idle');
 
-  const statusRef = useRef('idle');
-  const audioLevelRef = useRef(0);
+  const [aiSpeaking, setAiSpeaking] =
+    useState(false);
 
-  const recognitionRef = useRef(null);
-  const isListeningRef = useRef(false);
-  const mountedRef = useRef(true);
+  const [error, setError] =
+    useState('');
 
-  const audioContextRef = useRef(null);
-  const analyserRef = useRef(null);
-  const microphoneStreamRef = useRef(null);
-  const audioAnimationRef = useRef(null);
+  const [questionCount, setQuestionCount] =
+    useState(1);
 
-  const recordingStreamRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
-  const recordingChunksRef = useRef([]);
-  const recordingStartedRef = useRef(false);
-  const recordingStoppedRef = useRef(false);
-  const recordingMimeTypeRef = useRef('');
+  const [audioLevel, setAudioLevel] =
+    useState(0);
 
-  const videoRef = useRef(null);
+  const mountedRef =
+    useRef(true);
 
-  const canvasRef = useRef(null);
-  const animationRef = useRef(null);
+  const statusRef =
+    useRef('idle');
 
-  const playbackContextRef = useRef(null);
-  const playbackNextTimeRef = useRef(0);
-  const playbackSourcesRef = useRef([]);
-  const streamFinishedRef = useRef(false);
-  const lastScheduledSourceRef = useRef(null);
+  const audioLevelRef =
+    useRef(0);
 
-  const transcriptRef = useRef([]);
-  const conversationStartedRef = useRef(false);
+  /*
+   * =========================================================
+   * SPEECH RECOGNITION
+   * =========================================================
+   */
+
+  const recognitionRef =
+    useRef(null);
+
+  const isListeningRef =
+    useRef(false);
+
+  /*
+   * =========================================================
+   * AUDIO VISUALIZER
+   * =========================================================
+   */
+
+  const audioContextRef =
+    useRef(null);
+
+  const analyserRef =
+    useRef(null);
+
+  const microphoneStreamRef =
+    useRef(null);
+
+  const audioAnimationRef =
+    useRef(null);
+
+  /*
+   * =========================================================
+   * RECORDING
+   * =========================================================
+   */
+
+  const recordingSessionRef =
+    useRef(null);
+
+  const recordingUploadRef =
+    useRef(null);
+
+  const videoRef =
+    useRef(null);
+
+  /*
+   * =========================================================
+   * PARTICLE VISUALIZER
+   * =========================================================
+   */
+
+  const canvasRef =
+    useRef(null);
+
+  const animationRef =
+    useRef(null);
+
+  /*
+   * =========================================================
+   * AI AUDIO PLAYBACK
+   * =========================================================
+   */
+
+  const playbackContextRef =
+    useRef(null);
+
+  const playbackNextTimeRef =
+    useRef(0);
+
+  const playbackSourcesRef =
+    useRef([]);
+
+  const streamFinishedRef =
+    useRef(false);
+
+  const lastScheduledSourceRef =
+    useRef(null);
+
+  /*
+   * =========================================================
+   * TRANSCRIPT
+   * =========================================================
+   */
+
+  const transcriptRef =
+    useRef([]);
+
+  const conversationStartedRef =
+    useRef(false);
 
   const SpeechRecognition =
     window.SpeechRecognition ||
     window.webkitSpeechRecognition;
+
+  /*
+   * =========================================================
+   * HELPERS
+   * =========================================================
+   */
 
   const updateStatus = (value) => {
     statusRef.current = value;
@@ -60,6 +142,12 @@ const VoiceInterview = ({
     audioLevelRef.current = value;
     setAudioLevel(value);
   };
+
+  /*
+   * =========================================================
+   * AI AUDIO CONTEXT
+   * =========================================================
+   */
 
   const getAudioContext = async () => {
     if (!playbackContextRef.current) {
@@ -87,6 +175,12 @@ const VoiceInterview = ({
     return context;
   };
 
+  /*
+   * =========================================================
+   * BASE64 → BYTES
+   * =========================================================
+   */
+
   const base64ToBytes = (base64) => {
     const binaryString =
       window.atob(base64);
@@ -108,6 +202,12 @@ const VoiceInterview = ({
     return bytes;
   };
 
+  /*
+   * =========================================================
+   * PLAY PCM AUDIO
+   * =========================================================
+   */
+
   const playPcmChunk = async (
     base64Audio
   ) => {
@@ -117,10 +217,14 @@ const VoiceInterview = ({
     const bytes =
       base64ToBytes(base64Audio);
 
-    if (!bytes.length) return;
+    if (!bytes.length) {
+      return;
+    }
 
     const sampleCount =
-      Math.floor(bytes.length / 2);
+      Math.floor(
+        bytes.length / 2
+      );
 
     const audioBuffer =
       context.createBuffer(
@@ -157,7 +261,8 @@ const VoiceInterview = ({
     const source =
       context.createBufferSource();
 
-    source.buffer = audioBuffer;
+    source.buffer =
+      audioBuffer;
 
     const gainNode =
       context.createGain();
@@ -165,7 +270,10 @@ const VoiceInterview = ({
     gainNode.gain.value = 1;
 
     source.connect(gainNode);
-    gainNode.connect(context.destination);
+
+    gainNode.connect(
+      context.destination
+    );
 
     const now =
       context.currentTime;
@@ -213,8 +321,16 @@ const VoiceInterview = ({
     source.start(startTime);
   };
 
+  /*
+   * =========================================================
+   * FINISH AI SPEAKING
+   * =========================================================
+   */
+
   const finishAISpeaking = () => {
-    if (!mountedRef.current) return;
+    if (!mountedRef.current) {
+      return;
+    }
 
     setAiSpeaking(false);
 
@@ -222,6 +338,12 @@ const VoiceInterview = ({
 
     startListening();
   };
+
+  /*
+   * =========================================================
+   * STOP AI PLAYBACK
+   * =========================================================
+   */
 
   const stopAIPlayback = () => {
     playbackSourcesRef.current.forEach(
@@ -233,12 +355,14 @@ const VoiceInterview = ({
       }
     );
 
-    playbackSourcesRef.current = [];
+    playbackSourcesRef.current =
+      [];
 
     lastScheduledSourceRef.current =
       null;
 
-    streamFinishedRef.current = false;
+    streamFinishedRef.current =
+      false;
 
     if (playbackContextRef.current) {
       playbackNextTimeRef.current =
@@ -250,21 +374,34 @@ const VoiceInterview = ({
     setAiSpeaking(false);
   };
 
+  /*
+   * =========================================================
+   * AI TEXT TO SPEECH
+   * =========================================================
+   */
+
   const speakAI = async (text) => {
-    if (!text) return;
+    if (!text) {
+      return;
+    }
 
     stopAIPlayback();
 
     setAiSpeaking(true);
+
     updateStatus('speaking');
+
     setError('');
 
     streamFinishedRef.current =
       false;
 
     try {
-      if (playbackContextRef.current) {
-        await playbackContextRef.current.resume();
+      const context =
+        await getAudioContext();
+
+      if (context.state === 'suspended') {
+        await context.resume();
       }
 
       const response =
@@ -291,7 +428,8 @@ const VoiceInterview = ({
             await response.json();
 
           if (data.error) {
-            message = data.error;
+            message =
+              data.error;
           }
         } catch {}
 
@@ -318,7 +456,9 @@ const VoiceInterview = ({
           done
         } = await reader.read();
 
-        if (done) break;
+        if (done) {
+          break;
+        }
 
         buffer +=
           decoder.decode(
@@ -334,11 +474,15 @@ const VoiceInterview = ({
         buffer =
           events.pop() || '';
 
-        for (const event of events) {
+        for (
+          const event of events
+        ) {
           const lines =
             event.split('\n');
 
-          for (const line of lines) {
+          for (
+            const line of lines
+          ) {
             if (
               !line.startsWith(
                 'data: '
@@ -386,7 +530,9 @@ const VoiceInterview = ({
         const lines =
           buffer.split('\n');
 
-        for (const line of lines) {
+        for (
+          const line of lines
+        ) {
           if (
             !line.startsWith(
               'data: '
@@ -398,7 +544,9 @@ const VoiceInterview = ({
           const payload =
             line.slice(6).trim();
 
-          if (!payload) continue;
+          if (!payload) {
+            continue;
+          }
 
           try {
             const data =
@@ -430,9 +578,12 @@ const VoiceInterview = ({
         err
       );
 
-      if (!mountedRef.current) return;
+      if (!mountedRef.current) {
+        return;
+      }
 
       setAiSpeaking(false);
+
       updateStatus('error');
 
       setError(
@@ -442,14 +593,51 @@ const VoiceInterview = ({
     }
   };
 
+  /*
+   * =========================================================
+   * START RECORDING
+   * =========================================================
+   */
+
   const startRecording = async () => {
+    console.log(
+      '🎙️ START RECORDING CALLED'
+    );
+
+    const existingSession =
+      recordingSessionRef.current;
+
     if (
-      recordingStartedRef.current
+      existingSession?.recorder &&
+      existingSession.recorder.state !==
+        'inactive'
     ) {
+      console.log(
+        '⚠️ Recording already active.'
+      );
+
       return;
     }
 
     try {
+      if (
+        !navigator.mediaDevices ||
+        !navigator.mediaDevices.getUserMedia
+      ) {
+        throw new Error(
+          'Media devices are not supported by this browser.'
+        );
+      }
+
+      if (
+        typeof MediaRecorder ===
+        'undefined'
+      ) {
+        throw new Error(
+          'MediaRecorder is not supported by this browser.'
+        );
+      }
+
       const constraints =
         recordingMode === 'video'
           ? {
@@ -461,21 +649,66 @@ const VoiceInterview = ({
                 height: {
                   ideal: 720
                 },
-                facingMode:
-                  'user'
+                facingMode: 'user'
               }
             }
           : {
               audio: true
             };
 
+      console.log(
+        '🎙️ Requesting media:',
+        constraints
+      );
+
       const stream =
         await navigator.mediaDevices.getUserMedia(
           constraints
         );
 
-      recordingStreamRef.current =
-        stream;
+      console.log(
+        '✅ Media stream obtained:',
+        stream
+      );
+
+      if (!stream) {
+        throw new Error(
+          'Unable to obtain media stream.'
+        );
+      }
+
+      const audioTracks =
+        stream.getAudioTracks();
+
+      const videoTracks =
+        stream.getVideoTracks();
+
+      console.log(
+        '🎙️ Media tracks:',
+        {
+          audioTracks:
+            audioTracks.length,
+          videoTracks:
+            videoTracks.length
+        }
+      );
+
+      if (
+        audioTracks.length === 0
+      ) {
+        throw new Error(
+          'Microphone audio track was not obtained.'
+        );
+      }
+
+      if (
+        recordingMode === 'video' &&
+        videoTracks.length === 0
+      ) {
+        throw new Error(
+          'Camera video track was not obtained.'
+        );
+      }
 
       if (
         recordingMode === 'video' &&
@@ -489,48 +722,43 @@ const VoiceInterview = ({
         } catch {}
       }
 
-      recordingChunksRef.current =
-        [];
+      const mimeTypes =
+        recordingMode === 'video'
+          ? [
+              'video/webm;codecs=vp9,opus',
+              'video/webm;codecs=vp8,opus',
+              'video/webm'
+            ]
+          : [
+              'audio/webm;codecs=opus',
+              'audio/webm'
+            ];
 
-      const mimeTypes = [
-        'video/webm;codecs=vp9,opus',
-        'video/webm;codecs=vp8,opus',
-        'video/webm',
-        'audio/webm;codecs=opus',
-        'audio/webm'
-      ];
+      let selectedMimeType =
+        '';
 
-      let selectedMimeType = '';
-
-      for (const type of mimeTypes) {
-        if (
-          MediaRecorder.isTypeSupported(
-            type
-          )
-        ) {
+      for (
+        const type of mimeTypes
+      ) {
+        try {
           if (
-            recordingMode ===
-              'audio' &&
-            type.startsWith(
-              'audio/'
+            MediaRecorder.isTypeSupported(
+              type
             )
           ) {
-            selectedMimeType = type;
-            break;
-          }
+            selectedMimeType =
+              type;
 
-          if (
-            recordingMode ===
-              'video' &&
-            type.startsWith(
-              'video/'
-            )
-          ) {
-            selectedMimeType = type;
             break;
           }
-        }
+        } catch {}
       }
+
+      console.log(
+        '🎙️ Selected MIME:',
+        selectedMimeType ||
+          'browser default'
+      );
 
       const recorder =
         selectedMimeType
@@ -545,9 +773,34 @@ const VoiceInterview = ({
               stream
             );
 
-      recordingMimeTypeRef.current =
-        recorder.mimeType ||
-        selectedMimeType;
+      console.log(
+        '✅ RECORDING CREATED:',
+        {
+          state:
+            recorder.state,
+          mimeType:
+            recorder.mimeType
+        }
+      );
+
+      const session = {
+        recorder,
+        stream,
+        chunks: [],
+        mimeType:
+          recorder.mimeType ||
+          selectedMimeType ||
+          (recordingMode === 'video'
+            ? 'video/webm'
+            : 'audio/webm'),
+        stopped: false,
+        resolve: null,
+        reject: null,
+        stopPromise: null
+      };
+
+      recordingSessionRef.current =
+        session;
 
       recorder.ondataavailable =
         (event) => {
@@ -555,68 +808,103 @@ const VoiceInterview = ({
             event.data &&
             event.data.size > 0
           ) {
-            recordingChunksRef.current.push(
+            session.chunks.push(
               event.data
+            );
+
+            console.log(
+              '🎙️ Recording chunk:',
+              event.data.size
+            );
+          }
+        };
+
+      recorder.onerror =
+        (event) => {
+          console.error(
+            '❌ MediaRecorder error:',
+            event
+          );
+
+          if (session.reject) {
+            session.reject(
+              new Error(
+                'MediaRecorder encountered an error.'
+              )
+            );
+
+            session.resolve = null;
+            session.reject = null;
+          }
+
+          if (mountedRef.current) {
+            setError(
+              'Recording error occurred.'
             );
           }
         };
 
       recorder.onstop = () => {
-        recordingStoppedRef.current =
-          true;
+        console.log(
+          '🛑 MediaRecorder ONSTOP fired.'
+        );
 
-        const mimeType =
-          recordingMimeTypeRef.current ||
-          (recordingMode ===
-          'video'
-            ? 'video/webm'
-            : 'audio/webm');
+        session.stopped =
+          true;
 
         const blob =
           new Blob(
-            recordingChunksRef.current,
+            session.chunks,
             {
-              type: mimeType
+              type:
+                session.mimeType
             }
           );
 
         console.log(
-          'Voice interview recording ready:',
+          '✅ RECORDING BLOB CREATED:',
           {
-            blob,
-            size: blob.size,
-            type: blob.type,
-            recordingMode
+            size:
+              blob.size,
+            type:
+              blob.type,
+            chunks:
+              session.chunks.length
           }
         );
+
+        if (session.resolve) {
+          session.resolve(
+            blob
+          );
+
+          session.resolve =
+            null;
+
+          session.reject =
+            null;
+        }
       };
-
-      recorder.onerror = (event) => {
-        console.error(
-          'MediaRecorder error:',
-          event
-        );
-
-        setError(
-          'Recording error occurred.'
-        );
-      };
-
-      mediaRecorderRef.current =
-        recorder;
 
       recorder.start(1000);
 
-      recordingStartedRef.current =
-        true;
-
-      recordingStoppedRef.current =
-        false;
+      console.log(
+        '✅ RECORDING STARTED:',
+        {
+          state:
+            recorder.state,
+          mimeType:
+            recorder.mimeType
+        }
+      );
     } catch (err) {
       console.error(
-        'Recording start error:',
+        '❌ Recording start error:',
         err
       );
+
+      recordingSessionRef.current =
+        null;
 
       if (
         err.name ===
@@ -645,25 +933,142 @@ const VoiceInterview = ({
     }
   };
 
-  const stopRecording = () => {
-    if (
-      mediaRecorderRef.current &&
-      mediaRecorderRef.current
-        .state !== 'inactive'
-    ) {
-      try {
-        mediaRecorderRef.current.stop();
-      } catch {}
+  /*
+   * =========================================================
+   * STOP RECORDING
+   * =========================================================
+   */
+
+  const stopRecording = async () => {
+    const session =
+      recordingSessionRef.current;
+
+    console.log(
+      '🛑 STOP RECORDING:',
+      {
+        sessionExists:
+          !!session,
+        recorder:
+          session?.recorder,
+        recorderState:
+          session?.recorder?.state,
+        chunks:
+          session?.chunks?.length ||
+          0
+      }
+    );
+
+    if (!session) {
+      console.warn(
+        '⚠️ No recording session exists.'
+      );
+
+      return null;
+    }
+
+    const recorder =
+      session.recorder;
+
+    if (!recorder) {
+      console.warn(
+        '⚠️ Recording session has no recorder.'
+      );
+
+      return null;
     }
 
     if (
-      recordingStreamRef.current
+      recorder.state ===
+      'inactive'
     ) {
-      recordingStreamRef.current
+      const blob =
+        new Blob(
+          session.chunks,
+          {
+            type:
+              session.mimeType
+          }
+        );
+
+      cleanupRecording(
+        session
+      );
+
+      return blob.size > 0
+        ? blob
+        : null;
+    }
+
+    session.stopPromise =
+      new Promise(
+        (
+          resolve,
+          reject
+        ) => {
+          session.resolve =
+            resolve;
+
+          session.reject =
+            reject;
+        }
+      );
+
+    try {
+      recorder.requestData();
+    } catch {}
+
+    try {
+      recorder.stop();
+    } catch (err) {
+      session.resolve =
+        null;
+
+      session.reject =
+        null;
+
+      cleanupRecording(
+        session
+      );
+
+      throw err;
+    }
+
+    const blob =
+      await session.stopPromise;
+
+    cleanupRecording(
+      session
+    );
+
+    return blob &&
+      blob.size > 0
+      ? blob
+      : null;
+  };
+
+  /*
+   * =========================================================
+   * CLEANUP RECORDING
+   * =========================================================
+   */
+
+  const cleanupRecording = (
+    session
+  ) => {
+    if (!session) {
+      return;
+    }
+
+    if (session.stream) {
+      session.stream
         .getTracks()
-        .forEach((track) => {
-          track.stop();
-        });
+        .forEach(
+          (track) => {
+            try {
+              track.stop();
+            } catch {}
+          }
+        );
     }
 
     if (videoRef.current) {
@@ -671,15 +1076,110 @@ const VoiceInterview = ({
         null;
     }
 
-    mediaRecorderRef.current =
-      null;
-
-    recordingStreamRef.current =
-      null;
-
-    recordingStartedRef.current =
-      false;
+    if (
+      recordingSessionRef.current ===
+      session
+    ) {
+      recordingSessionRef.current =
+        null;
+    }
   };
+
+  /*
+   * =========================================================
+   * UPLOAD RECORDING
+   * =========================================================
+   */
+
+  const uploadRecordingToSupabase =
+    async (blob) => {
+      if (!blob) {
+        throw new Error(
+          'No recording was created.'
+        );
+      }
+
+      if (blob.size === 0) {
+        throw new Error(
+          'Recording is empty.'
+        );
+      }
+
+      if (!sessionId) {
+        throw new Error(
+          'Session ID is missing.'
+        );
+      }
+
+      const formData =
+        new FormData();
+
+      formData.append(
+        'video',
+        blob,
+        `interview-${sessionId}.webm`
+      );
+
+      formData.append(
+        'sessionId',
+        sessionId
+      );
+
+      console.log(
+        '☁️ Uploading recording:',
+        {
+          sessionId,
+          size:
+            blob.size,
+          type:
+            blob.type,
+          recordingMode
+        }
+      );
+
+      const response =
+        await fetch(
+          `${API_URL}/api/recording/upload`,
+          {
+            method: 'POST',
+            body: formData
+          }
+        );
+
+      let data;
+
+      try {
+        data =
+          await response.json();
+      } catch {
+        throw new Error(
+          'Backend returned an invalid response.'
+        );
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+            'Failed to upload recording.'
+        );
+      }
+
+      console.log(
+        '✅ Recording uploaded:',
+        data
+      );
+
+      recordingUploadRef.current =
+        data;
+
+      return data;
+    };
+
+  /*
+   * =========================================================
+   * AUDIO VISUALIZER
+   * =========================================================
+   */
 
   const startAudioVisualizer =
     async () => {
@@ -690,19 +1190,31 @@ const VoiceInterview = ({
           return;
         }
 
-        const stream =
-          recordingStreamRef.current ||
-          (await navigator.mediaDevices.getUserMedia(
-            {
-              audio: true
-            }
-          ));
+        const recordingSession =
+          recordingSessionRef.current;
+
+        let stream =
+          recordingSession?.stream;
+
+        if (!stream) {
+          stream =
+            await navigator.mediaDevices.getUserMedia(
+              {
+                audio: true
+              }
+            );
+
+          microphoneStreamRef.current =
+            stream;
+        }
 
         const AudioContext =
           window.AudioContext ||
           window.webkitAudioContext;
 
-        if (!AudioContext) return;
+        if (!AudioContext) {
+          return;
+        }
 
         const context =
           new AudioContext();
@@ -710,7 +1222,9 @@ const VoiceInterview = ({
         const analyser =
           context.createAnalyser();
 
-        analyser.fftSize = 256;
+        analyser.fftSize =
+          256;
+
         analyser.smoothingTimeConstant =
           0.85;
 
@@ -728,13 +1242,6 @@ const VoiceInterview = ({
 
         analyserRef.current =
           analyser;
-
-        if (
-          !recordingStreamRef.current
-        ) {
-          microphoneStreamRef.current =
-            stream;
-        }
 
         const data =
           new Uint8Array(
@@ -764,7 +1271,8 @@ const VoiceInterview = ({
           }
 
           const average =
-            total / data.length;
+            total /
+            data.length;
 
           updateAudioLevel(
             Math.min(
@@ -788,6 +1296,12 @@ const VoiceInterview = ({
       }
     };
 
+  /*
+   * =========================================================
+   * STOP AUDIO VISUALIZER
+   * =========================================================
+   */
+
   const stopAudioVisualizer =
     () => {
       if (
@@ -804,8 +1318,11 @@ const VoiceInterview = ({
         microphoneStreamRef.current
           .getTracks()
           .forEach(
-            (track) =>
-              track.stop()
+            (track) => {
+              try {
+                track.stop();
+              } catch {}
+            }
           );
       }
 
@@ -832,6 +1349,12 @@ const VoiceInterview = ({
       updateAudioLevel(0);
     };
 
+  /*
+   * =========================================================
+   * START LISTENING
+   * =========================================================
+   */
+
   const startListening = async () => {
     if (!SpeechRecognition) {
       setError(
@@ -839,16 +1362,26 @@ const VoiceInterview = ({
       );
 
       updateStatus('error');
+
       return;
     }
 
-    if (aiSpeaking) return;
-
-    if (isListeningRef.current)
+    if (aiSpeaking) {
       return;
+    }
+
+    if (isListeningRef.current) {
+      return;
+    }
 
     try {
       await startAudioVisualizer();
+
+      if (
+        !recognitionRef.current
+      ) {
+        return;
+      }
 
       recognitionRef.current.start();
 
@@ -856,6 +1389,7 @@ const VoiceInterview = ({
         true;
 
       updateStatus('listening');
+
       setError('');
     } catch (err) {
       console.warn(
@@ -865,9 +1399,18 @@ const VoiceInterview = ({
     }
   };
 
+  /*
+   * =========================================================
+   * STOP LISTENING
+   * =========================================================
+   */
+
   const stopListening = () => {
-    if (!recognitionRef.current)
+    if (
+      !recognitionRef.current
+    ) {
       return;
+    }
 
     try {
       recognitionRef.current.stop();
@@ -876,6 +1419,12 @@ const VoiceInterview = ({
     isListeningRef.current =
       false;
   };
+
+  /*
+   * =========================================================
+   * SEND USER RESPONSE TO AI
+   * =========================================================
+   */
 
   const sendCandidateResponse =
     async (message) => {
@@ -895,6 +1444,7 @@ const VoiceInterview = ({
       });
 
       updateStatus('thinking');
+
       setError('');
 
       try {
@@ -949,9 +1499,7 @@ const VoiceInterview = ({
           err
         );
 
-        if (
-          !mountedRef.current
-        ) {
+        if (!mountedRef.current) {
           return;
         }
 
@@ -964,8 +1512,15 @@ const VoiceInterview = ({
       }
     };
 
+  /*
+   * =========================================================
+   * SPEECH RECOGNITION SETUP
+   * =========================================================
+   */
+
   useEffect(() => {
-    mountedRef.current = true;
+    mountedRef.current =
+      true;
 
     if (!SpeechRecognition) {
       setError(
@@ -975,17 +1530,25 @@ const VoiceInterview = ({
       updateStatus('error');
 
       return () => {
-        mountedRef.current = false;
+        mountedRef.current =
+          false;
       };
     }
 
     const recognition =
       new SpeechRecognition();
 
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = 'en-US';
-    recognition.maxAlternatives = 1;
+    recognition.continuous =
+      false;
+
+    recognition.interimResults =
+      false;
+
+    recognition.lang =
+      'en-US';
+
+    recognition.maxAlternatives =
+      1;
 
     recognition.onresult =
       (event) => {
@@ -1008,7 +1571,9 @@ const VoiceInterview = ({
           }
         }
 
-        if (finalText.trim()) {
+        if (
+          finalText.trim()
+        ) {
           sendCandidateResponse(
             finalText.trim()
           );
@@ -1019,9 +1584,7 @@ const VoiceInterview = ({
       isListeningRef.current =
         false;
 
-      if (
-        !mountedRef.current
-      ) {
+      if (!mountedRef.current) {
         return;
       }
 
@@ -1032,7 +1595,9 @@ const VoiceInterview = ({
         currentStatus !==
           'thinking' &&
         currentStatus !==
-          'speaking'
+          'speaking' &&
+        currentStatus !==
+          'uploading'
       ) {
         updateStatus('ready');
       }
@@ -1043,9 +1608,7 @@ const VoiceInterview = ({
         isListeningRef.current =
           false;
 
-        if (
-          !mountedRef.current
-        ) {
+        if (!mountedRef.current) {
           return;
         }
 
@@ -1093,65 +1656,97 @@ const VoiceInterview = ({
         recognition.stop();
       } catch {}
 
-      stopAIPlayback();
-      stopAudioVisualizer();
-      stopRecording();
-
-      if (
-        playbackContextRef.current
-      ) {
-        playbackContextRef.current
-          .close()
-          .catch(() => {});
-      }
-
-      playbackContextRef.current =
-        null;
-
-      recognitionRef.current =
-        null;
-
       isListeningRef.current =
         false;
+
+      stopAIPlayback();
+
+      stopAudioVisualizer();
     };
   }, []);
 
+  /*
+   * =========================================================
+   * START INTERVIEW
+   * =========================================================
+   */
+
   useEffect(() => {
-    if (
-      !initialMessage ||
-      conversationStartedRef.current
-    ) {
+    if (!initialMessage) {
       return;
     }
 
-    conversationStartedRef.current =
-      true;
+    const timer = setTimeout(async () => {
+      if (
+        conversationStartedRef.current
+      ) {
+        return;
+      }
 
-    transcriptRef.current.push({
-      sender: 'ai',
-      text: initialMessage,
-      timestamp:
-        new Date().toISOString()
-    });
+      conversationStartedRef.current =
+        true;
 
-    const timer =
-      setTimeout(async () => {
-        await startRecording();
-        speakAI(initialMessage);
-      }, 500);
+      console.log(
+        '🚨 INTERVIEW START TIMER FIRED'
+      );
 
-    return () =>
+      console.log(
+        '🚨 ABOUT TO START RECORDING'
+      );
+
+      transcriptRef.current.push({
+        sender: 'ai',
+        text: initialMessage,
+        timestamp:
+          new Date().toISOString()
+      });
+
+      await startRecording();
+
+      console.log(
+        '🚨 START RECORDING FINISHED'
+      );
+
+      await new Promise(
+        (resolve) =>
+          setTimeout(
+            resolve,
+            150
+          )
+      );
+
+      console.log(
+        '🚨 ABOUT TO SPEAK AI'
+      );
+
+      speakAI(initialMessage);
+    }, 500);
+
+    return () => {
       clearTimeout(timer);
+    };
   }, [initialMessage]);
+
+  /*
+   * =========================================================
+   * PARTICLE VISUALIZER
+   * =========================================================
+   */
 
   useEffect(() => {
     const canvas =
       canvasRef.current;
 
-    if (!canvas) return;
+    if (!canvas) {
+      return;
+    }
 
     const ctx =
       canvas.getContext('2d');
+
+    if (!ctx) {
+      return;
+    }
 
     let width = 0;
     let height = 0;
@@ -1167,8 +1762,11 @@ const VoiceInterview = ({
           1.5
         );
 
-      width = rect.width;
-      height = rect.height;
+      width =
+        rect.width;
+
+      height =
+        rect.height;
 
       canvas.width =
         width * ratio;
@@ -1194,7 +1792,9 @@ const VoiceInterview = ({
     );
 
     const particles = [];
-    const particleCount = 2200;
+
+    const particleCount =
+      2200;
 
     for (
       let i = 0;
@@ -1217,7 +1817,8 @@ const VoiceInterview = ({
         distance,
         size:
           0.8 +
-          Math.random() * 1.4,
+          Math.random() *
+            1.4,
         phase:
           Math.random() *
           Math.PI *
@@ -1228,7 +1829,8 @@ const VoiceInterview = ({
         randomWave:
           0.5 +
           Math.random() * 1.5,
-        hue: Math.random()
+        hue:
+          Math.random()
       });
     }
 
@@ -1260,12 +1862,14 @@ const VoiceInterview = ({
         currentStatus ===
         'listening';
 
-      const energy = speaking
-        ? 1
-        : listening
-        ? 0.35 +
-          currentAudio * 0.7
-        : 0.12;
+      const energy =
+        speaking
+          ? 1
+          : listening
+          ? 0.35 +
+            currentAudio *
+              0.7
+          : 0.12;
 
       const baseRadius =
         Math.min(
@@ -1336,19 +1940,25 @@ const VoiceInterview = ({
           if (speaking) {
             distortion *=
               1.25 +
-              currentAudio * 0.15;
-          } else if (listening) {
+              currentAudio *
+                0.15;
+          } else if (
+            listening
+          ) {
             distortion *=
               0.85 +
-              currentAudio * 0.8;
+              currentAudio *
+                0.8;
           } else {
-            distortion *= 0.55;
+            distortion *=
+              0.55;
           }
 
           const radius =
             distance *
               baseRadius +
-            distortion * energy;
+            distortion *
+              energy;
 
           const x =
             centerX +
@@ -1451,30 +2061,172 @@ const VoiceInterview = ({
     };
   }, []);
 
+  /*
+   * =========================================================
+   * END INTERVIEW
+   * =========================================================
+   */
+
   const handleEndInterview =
-    () => {
-      stopListening();
+    async () => {
+      if (
+        statusRef.current ===
+        'uploading'
+      ) {
+        return;
+      }
 
-      stopAIPlayback();
-
-      window.speechSynthesis?.cancel();
-
-      stopAudioVisualizer();
-
-      stopRecording();
-
-      if (onEndInterview) {
-        onEndInterview(
-          transcriptRef.current
+      try {
+        console.log(
+          '🛑 Ending voice interview...'
         );
+
+        stopListening();
+
+        stopAIPlayback();
+
+        if (
+          window.speechSynthesis
+        ) {
+          window.speechSynthesis.cancel();
+        }
+
+        updateStatus(
+          'uploading'
+        );
+
+        setError('');
+
+        /*
+         * Stop recording first.
+         */
+
+        const recordingBlob =
+          await stopRecording();
+
+        console.log(
+          '📦 FINAL RECORDING BLOB:',
+          recordingBlob
+            ? {
+                size:
+                  recordingBlob.size,
+                type:
+                  recordingBlob.type
+              }
+            : null
+        );
+
+        let uploadResult =
+          null;
+
+        /*
+         * Upload recording to
+         * Supabase Storage.
+         */
+
+        if (
+          recordingBlob &&
+          recordingBlob.size > 0
+        ) {
+          uploadResult =
+            await uploadRecordingToSupabase(
+              recordingBlob
+            );
+        } else {
+          console.warn(
+            '⚠️ Recording blob was empty or missing.'
+          );
+        }
+
+        /*
+         * Stop visualizer after
+         * recording is finished.
+         */
+
+        stopAudioVisualizer();
+
+        console.log(
+          '✅ Interview recording upload complete:',
+          uploadResult
+        );
+
+        /*
+         * =====================================================
+         * IMPORTANT DATABASE CHANGE
+         * =====================================================
+         *
+         * Backend returns:
+         *
+         * {
+         *   message,
+         *   url,
+         *   filename
+         * }
+         *
+         * We store the filename/path in:
+         *
+         * AI_MOCK.recording_path
+         *
+         * The actual recording remains in:
+         *
+         * Supabase Storage → recordings
+         */
+
+        const recordingPath =
+          uploadResult?.filename ||
+          uploadResult?.url ||
+          null;
+
+        console.log(
+          '📁 Recording path:',
+          recordingPath
+        );
+
+        /*
+         * Send transcript + recording
+         * path to App.jsx.
+         */
+
+        if (onEndInterview) {
+          await onEndInterview(
+            transcriptRef.current,
+            recordingPath
+          );
+        }
+
+      } catch (err) {
+        console.error(
+          '❌ Failed to finish voice interview:',
+          err
+        );
+
+        stopAudioVisualizer();
+
+        if (mountedRef.current) {
+          setError(
+            err.message ||
+              'Failed to finish the interview.'
+          );
+
+          updateStatus('error');
+        }
       }
     };
+
+  /*
+   * =========================================================
+   * VISUALIZER CLICK
+   * =========================================================
+   */
 
   const handleVisualizerClick =
     () => {
       if (
         aiSpeaking ||
-        status === 'thinking'
+        status ===
+          'thinking' ||
+        status ===
+          'uploading'
       ) {
         return;
       }
@@ -1483,31 +2235,63 @@ const VoiceInterview = ({
         isListeningRef.current
       ) {
         stopListening();
+
         updateStatus('ready');
       } else {
         startListening();
       }
     };
 
+  /*
+   * =========================================================
+   * STATUS TEXT
+   * =========================================================
+   */
+
   const getStatusText = () => {
-    if (status === 'speaking') {
+    if (
+      status ===
+      'speaking'
+    ) {
       return 'AI is speaking...';
     }
 
-    if (status === 'listening') {
+    if (
+      status ===
+      'listening'
+    ) {
       return 'Listening...';
     }
 
-    if (status === 'thinking') {
+    if (
+      status ===
+      'thinking'
+    ) {
       return 'Thinking...';
     }
 
-    if (status === 'error') {
+    if (
+      status ===
+      'uploading'
+    ) {
+      return 'Saving interview...';
+    }
+
+    if (
+      status ===
+      'error'
+    ) {
       return 'Voice error';
     }
 
     return 'Your turn';
   };
+
+  /*
+   * =========================================================
+   * UI
+   * =========================================================
+   */
 
   return (
     <div
@@ -1546,15 +2330,18 @@ const VoiceInterview = ({
             justifyContent:
               'space-between',
             alignItems: 'center',
-            position: 'relative',
+            position:
+              'relative',
             zIndex: 5
           }}
         >
           <div>
             <div
               style={{
-                color: '#c084fc',
-                fontSize: '0.68rem',
+                color:
+                  '#c084fc',
+                fontSize:
+                  '0.68rem',
                 fontWeight: 800,
                 letterSpacing:
                   '0.2em'
@@ -1565,8 +2352,10 @@ const VoiceInterview = ({
 
             <div
               style={{
-                color: '#f8fafc',
-                fontSize: '1.25rem',
+                color:
+                  '#f8fafc',
+                fontSize:
+                  '1.25rem',
                 fontWeight: 700,
                 marginTop:
                   '0.35rem'
@@ -1579,7 +2368,8 @@ const VoiceInterview = ({
           <div
             style={{
               display: 'flex',
-              alignItems: 'center',
+              alignItems:
+                'center',
               gap: '0.5rem',
               padding:
                 '0.55rem 0.85rem',
@@ -1589,7 +2379,8 @@ const VoiceInterview = ({
                 'rgba(255,255,255,0.04)',
               border:
                 '1px solid rgba(255,255,255,0.08)',
-              color: '#cbd5e1',
+              color:
+                '#cbd5e1',
               fontSize:
                 '0.75rem'
             }}
@@ -1601,17 +2392,20 @@ const VoiceInterview = ({
                 borderRadius:
                   '50%',
                 background:
-                  status === 'error'
+                  status ===
+                  'error'
                     ? '#ef4444'
                     : '#22c55e',
                 boxShadow:
-                  status === 'error'
+                  status ===
+                  'error'
                     ? '0 0 10px rgba(239,68,68,0.8)'
                     : '0 0 10px rgba(34,197,94,0.8)'
               }}
             />
 
-            Question {questionCount}
+            Question{' '}
+            {questionCount}
           </div>
         </div>
 
@@ -1662,7 +2456,8 @@ const VoiceInterview = ({
                 style={{
                   width: '100%',
                   height: '100%',
-                  objectFit: 'cover',
+                  objectFit:
+                    'cover',
                   transform:
                     'scaleX(-1)',
                   display:
@@ -1720,8 +2515,10 @@ const VoiceInterview = ({
                 'relative',
               width: '520px',
               height: '520px',
-              maxWidth: '92vw',
-              maxHeight: '58vh',
+              maxWidth:
+                '92vw',
+              maxHeight:
+                '58vh',
               display: 'flex',
               alignItems:
                 'center',
@@ -1770,8 +2567,7 @@ const VoiceInterview = ({
                     : '#c4b5fd',
                 fontSize:
                   '1.45rem',
-                fontWeight:
-                  800,
+                fontWeight: 800,
                 textShadow:
                   '0 0 25px rgba(168,85,247,0.25)'
               }}
@@ -1798,6 +2594,9 @@ const VoiceInterview = ({
                 : status ===
                   'thinking'
                 ? 'Processing your response'
+                : status ===
+                  'uploading'
+                ? 'Uploading your interview recording'
                 : 'Speak when you are ready'}
             </div>
           </div>
@@ -1851,7 +2650,9 @@ const VoiceInterview = ({
             disabled={
               aiSpeaking ||
               status ===
-                'thinking'
+                'thinking' ||
+              status ===
+                'uploading'
             }
             style={{
               width: '54px',
@@ -1869,13 +2670,17 @@ const VoiceInterview = ({
               cursor:
                 aiSpeaking ||
                 status ===
-                  'thinking'
+                  'thinking' ||
+                status ===
+                  'uploading'
                   ? 'not-allowed'
                   : 'pointer',
               opacity:
                 aiSpeaking ||
                 status ===
-                  'thinking'
+                  'thinking' ||
+                status ===
+                  'uploading'
                   ? 0.45
                   : 1,
               fontSize:
@@ -1889,6 +2694,10 @@ const VoiceInterview = ({
             type="button"
             onClick={
               handleEndInterview
+            }
+            disabled={
+              status ===
+              'uploading'
             }
             style={{
               padding:
@@ -1904,12 +2713,23 @@ const VoiceInterview = ({
               fontWeight:
                 700,
               cursor:
-                'pointer',
+                status ===
+                'uploading'
+                  ? 'not-allowed'
+                  : 'pointer',
+              opacity:
+                status ===
+                'uploading'
+                  ? 0.6
+                  : 1,
               boxShadow:
                 '0 0 25px rgba(236,72,153,0.08)'
             }}
           >
-            End Interview
+            {status ===
+            'uploading'
+              ? 'Saving...'
+              : 'End Interview'}
           </button>
         </div>
       </div>
