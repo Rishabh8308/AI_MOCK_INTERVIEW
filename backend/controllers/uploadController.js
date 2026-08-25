@@ -5,11 +5,27 @@ export const uploadRecording = async (req, res) => {
         const { sessionId, recordingMode } = req.body;
         const file = req.file;
 
+        console.log('📥 Recording upload request:', {
+            sessionId,
+            recordingMode,
+            fileName: file?.originalname,
+            fileSize: file?.size,
+            fileType: file?.mimetype
+        });
+
+        // --------------------------------------------------
+        // Validate file
+        // --------------------------------------------------
+
         if (!file) {
             return res.status(400).json({
                 error: 'No recording file provided'
             });
         }
+
+        // --------------------------------------------------
+        // Validate session
+        // --------------------------------------------------
 
         if (!sessionId) {
             return res.status(400).json({
@@ -17,67 +33,120 @@ export const uploadRecording = async (req, res) => {
             });
         }
 
-        const mode =
-            recordingMode === 'video'
-                ? 'video'
-                : 'audio';
+        // --------------------------------------------------
+        // Determine folder
+        // --------------------------------------------------
+
+        let folder;
+
+        if (recordingMode === 'video') {
+            folder = 'video+audio';
+        } else {
+            folder = 'audio';
+        }
+
+        // --------------------------------------------------
+        // Create unique filename
+        // --------------------------------------------------
 
         const fileName =
-            `${sessionId}/recording-${Date.now()}.webm`;
+            `${folder}/interview-${sessionId}-${Date.now()}.webm`;
 
-        const { data, error } =
-            await supabase.storage
-                .from('AI_MOCK')
-                .upload(
-                    fileName,
-                    file.buffer,
-                    {
-                        contentType:
-                            file.mimetype ||
-                            'application/octet-stream',
-                        cacheControl: '3600',
-                        upsert: false
-                    }
-                );
+        console.log(
+            '📁 Uploading to:',
+            fileName
+        );
+
+        // --------------------------------------------------
+        // Upload to Supabase
+        // --------------------------------------------------
+
+        const {
+            data,
+            error
+        } = await supabase.storage
+            .from('AI_MOCK')
+            .upload(
+                fileName,
+                file.buffer,
+                {
+                    contentType:
+                        file.mimetype ||
+                        'audio/webm',
+
+                    cacheControl:
+                        '3600',
+
+                    upsert: false
+                }
+            );
 
         if (error) {
             console.error(
-                'Supabase Storage Upload Error:',
+                '❌ Supabase Storage Upload Error:',
                 error
             );
 
             return res.status(500).json({
                 error:
-                    'Failed to upload recording to Supabase Storage',
-                details: error.message
+                    'Failed to upload recording to cloud storage'
             });
         }
 
         console.log(
-            '✅ Recording uploaded to Supabase:',
-            data.path
+            '✅ Supabase upload successful:',
+            data
         );
 
-        res.json({
-            success: true,
+        // --------------------------------------------------
+        // Get public URL
+        // --------------------------------------------------
+
+        const {
+            data: publicUrlData
+        } = supabase.storage
+            .from('AI_MOCK')
+            .getPublicUrl(fileName);
+
+        const publicUrl =
+            publicUrlData?.publicUrl || null;
+
+        console.log(
+            '🔗 Recording URL:',
+            publicUrl
+        );
+
+        // --------------------------------------------------
+        // Return information to frontend
+        // --------------------------------------------------
+
+        return res.json({
             message:
                 'Recording uploaded successfully',
-            path: data.path,
-            filename: fileName,
-            recordingMode: mode,
-            contentType: file.mimetype,
-            size: file.size
+
+            url:
+                publicUrl,
+
+            filename:
+                fileName,
+
+            recordingMode:
+                recordingMode || 'audio',
+
+            folder:
+                folder
         });
 
     } catch (error) {
         console.error(
-            'Recording upload error:',
+            '❌ Recording upload error:',
             error
         );
 
-        res.status(500).json({
-            success: false,
-            error: error.message
+        return res.status(500).json({
+            error:
+                error.message ||
+                'Unexpected recording upload error'
         });
     }
 };

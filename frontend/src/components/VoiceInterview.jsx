@@ -65,6 +65,21 @@ const VoiceInterview = ({
 
   /*
    * =========================================================
+   * MIXED RECORDING AUDIO
+   * =========================================================
+   */
+
+  const recordingAudioContextRef =
+    useRef(null);
+
+  const recordingDestinationRef =
+    useRef(null);
+
+  const microphoneSourceRef =
+    useRef(null);
+
+  /*
+   * =========================================================
    * RECORDING
    * =========================================================
    */
@@ -269,11 +284,42 @@ const VoiceInterview = ({
 
     gainNode.gain.value = 1;
 
+    /*
+     * AI TTS → GainNode
+     */
     source.connect(gainNode);
 
+    /*
+     * AI TTS → Speakers
+     */
     gainNode.connect(
       context.destination
     );
+
+    /*
+     * AI TTS → Recording Mixer
+     *
+     * The recording destination uses
+     * the SAME AudioContext as this source.
+     */
+    if (
+      recordingDestinationRef.current
+    ) {
+      try {
+        gainNode.connect(
+          recordingDestinationRef.current
+        );
+
+        console.log(
+          '🎧 AI voice connected to recording mixer'
+        );
+      } catch (err) {
+        console.error(
+          '❌ Failed to connect AI voice to recording mixer:',
+          err
+        );
+      }
+    }
 
     const now =
       context.currentTime;
@@ -619,6 +665,8 @@ const VoiceInterview = ({
       return;
     }
 
+    let stream = null;
+
     try {
       if (
         !navigator.mediaDevices ||
@@ -638,33 +686,127 @@ const VoiceInterview = ({
         );
       }
 
-      const constraints =
-        recordingMode === 'video'
-          ? {
-              audio: true,
-              video: {
-                width: {
-                  ideal: 1280
-                },
-                height: {
-                  ideal: 720
-                },
-                facingMode: 'user'
-              }
-            }
-          : {
-              audio: true
-            };
+      /*
+ * =========================================================
+ * GET RECORDING MEDIA
+ * =========================================================
+ *
+ * AUDIO MODE:
+ *   Microphone only
+ *
+ * VIDEO MODE:
+ *   Screen → recorded video
+ *   Camera → UI preview
+ *   Microphone → mixed audio
+ */
 
-      console.log(
-        '🎙️ Requesting media:',
-        constraints
+let cameraStream = null;
+let screenStream = null;
+
+if (recordingMode === 'video') {
+  console.log(
+    '🖥️ Requesting screen capture...'
+  );
+
+  /*
+   * Screen is the video source that
+   * will actually be recorded.
+   */
+  screenStream =
+    await navigator.mediaDevices.getDisplayMedia({
+      video: {
+        cursor: 'always'
+      },
+      audio: false
+    });
+
+  const screenVideoTrack =
+  screenStream.getVideoTracks()[0];
+
+if (screenVideoTrack) {
+  screenVideoTrack.onended = () => {
+    console.log(
+      '🖥️ User stopped screen sharing'
+    );
+
+    if (
+      mountedRef.current &&
+      statusRef.current !==
+        'uploading'
+    ) {
+      setError(
+        'Screen sharing was stopped. Please end the interview.'
       );
+    }
+  };
+}  
 
-      const stream =
-        await navigator.mediaDevices.getUserMedia(
-          constraints
-        );
+  console.log(
+    '✅ Screen stream obtained:',
+    screenStream
+  );
+
+  /*
+   * Camera is ONLY for the live UI preview.
+   */
+  cameraStream =
+    await navigator.mediaDevices.getUserMedia({
+      video: {
+        width: {
+          ideal: 1280
+        },
+        height: {
+          ideal: 720
+        },
+        facingMode: 'user'
+      },
+      audio: true
+    });
+
+  console.log(
+    '✅ Camera stream obtained for preview:',
+    cameraStream
+  );
+
+  /*
+   * The camera preview continues to use
+   * the camera stream.
+   */
+  if (videoRef.current) {
+    videoRef.current.srcObject =
+      cameraStream;
+
+    try {
+      await videoRef.current.play();
+    } catch {}
+  }
+
+  /*
+   * IMPORTANT:
+   * `stream` is the source used by the
+   * audio mixer.
+   *
+   * We use the camera stream here because
+   * it contains the microphone.
+   */
+  stream = cameraStream;
+
+} else {
+  /*
+   * AUDIO MODE
+   *
+   * Nothing changes here.
+   */
+  stream =
+    await navigator.mediaDevices.getUserMedia({
+      audio: true
+    });
+}
+
+console.log(
+  '🎙️ Recording source stream:',
+  stream
+);
 
       console.log(
         '✅ Media stream obtained:',
@@ -681,7 +823,9 @@ const VoiceInterview = ({
         stream.getAudioTracks();
 
       const videoTracks =
-        stream.getVideoTracks();
+  recordingMode === 'video'
+    ? screenStream.getVideoTracks()
+    : [];
 
       console.log(
         '🎙️ Media tracks:',
@@ -722,6 +866,43 @@ const VoiceInterview = ({
         } catch {}
       }
 
+      /*
+       * =========================================================
+       * CREATE MIXER USING THE SAME AUDIO CONTEXT AS AI TTS
+       * =========================================================
+       */
+
+      const playbackContext =
+        await getAudioContext();
+
+      const recordingDestination =
+        playbackContext.createMediaStreamDestination();
+
+      const microphoneSource =
+        playbackContext.createMediaStreamSource(
+          stream
+        );
+
+      /*
+       * Microphone → recording mixer
+       */
+      microphoneSource.connect(
+        recordingDestination
+      );
+
+      recordingAudioContextRef.current =
+        playbackContext;
+
+      recordingDestinationRef.current =
+        recordingDestination;
+
+      microphoneSourceRef.current =
+        microphoneSource;
+
+      console.log(
+        '🎚️ Recording audio mixer created'
+      );
+
       const mimeTypes =
         recordingMode === 'video'
           ? [
@@ -760,17 +941,80 @@ const VoiceInterview = ({
           'browser default'
       );
 
+      /*
+       * =========================================================
+       * BUILD RECORDING STREAM
+       * =========================================================
+       *
+       * Video mode:
+       *   Camera video + mixed audio
+       *
+       * Audio mode:
+       *   Mixed audio only
+       */
+
+      const recordingStream =
+        new MediaStream();
+
+      /*
+       * Add camera video tracks.
+       */
+      videoTracks.forEach(
+        (track) => {
+          recordingStream.addTrack(
+            track
+          );
+        }
+      );
+
+      /*
+       * Add mixed audio track.
+       *
+       * This contains:
+       * - microphone
+       * - AI TTS
+       */
+
+      const mixedAudioTrack =
+        recordingDestination
+          .stream
+          .getAudioTracks()[0];
+
+      if (!mixedAudioTrack) {
+        throw new Error(
+          'Mixed audio track was not created.'
+        );
+      }
+
+      recordingStream.addTrack(
+        mixedAudioTrack
+      );
+
+      console.log(
+        '🎚️ Recording stream created:',
+        {
+          audioTracks:
+            recordingStream
+              .getAudioTracks()
+              .length,
+          videoTracks:
+            recordingStream
+              .getVideoTracks()
+              .length
+        }
+      );
+
       const recorder =
         selectedMimeType
           ? new MediaRecorder(
-              stream,
+              recordingStream,
               {
                 mimeType:
                   selectedMimeType
               }
             )
           : new MediaRecorder(
-              stream
+              recordingStream
             );
 
       console.log(
@@ -784,20 +1028,39 @@ const VoiceInterview = ({
       );
 
       const session = {
-        recorder,
-        stream,
-        chunks: [],
-        mimeType:
-          recorder.mimeType ||
-          selectedMimeType ||
-          (recordingMode === 'video'
-            ? 'video/webm'
-            : 'audio/webm'),
-        stopped: false,
-        resolve: null,
-        reject: null,
-        stopPromise: null
-      };
+  recorder,
+
+  // Stream given to MediaRecorder
+  stream: recordingStream,
+
+  // Original microphone/camera stream
+  sourceStream: stream,
+
+  // Screen stream used for the recorded video
+  screenStream,
+
+  // Camera stream used for the UI preview
+  cameraStream,
+
+  chunks: [],
+
+  mimeType:
+    recorder.mimeType ||
+    selectedMimeType ||
+    (
+      recordingMode === 'video'
+        ? 'video/webm'
+        : 'audio/webm'
+    ),
+
+  stopped: false,
+
+  resolve: null,
+
+  reject: null,
+
+  stopPromise: null
+};
 
       recordingSessionRef.current =
         session;
@@ -903,8 +1166,46 @@ const VoiceInterview = ({
         err
       );
 
+      /*
+       * Clean up the original stream
+       * if recording initialization fails.
+       */
+      if (stream) {
+        stream
+          .getTracks()
+          .forEach(
+            (track) => {
+              try {
+                track.stop();
+              } catch {}
+            }
+          );
+      }
+
+      if (
+        microphoneSourceRef.current
+      ) {
+        try {
+          microphoneSourceRef.current.disconnect();
+        } catch {}
+
+        microphoneSourceRef.current =
+          null;
+      }
+
+      recordingDestinationRef.current =
+        null;
+
+      recordingAudioContextRef.current =
+        null;
+
       recordingSessionRef.current =
         null;
+
+      if (videoRef.current) {
+        videoRef.current.srcObject =
+          null;
+      }
 
       if (
         err.name ===
@@ -1053,37 +1354,150 @@ const VoiceInterview = ({
    */
 
   const cleanupRecording = (
+  session
+) => {
+  if (!session) {
+    return;
+  }
+
+  console.log(
+    '🧹 Cleaning up recording streams...'
+  );
+
+  /*
+   * =========================================================
+   * STOP SCREEN STREAM
+   * =========================================================
+   *
+   * This stops screen sharing.
+   */
+  if (session.screenStream) {
+    session.screenStream
+      .getTracks()
+      .forEach((track) => {
+        try {
+          track.stop();
+        } catch {}
+      });
+
+    console.log(
+      '🖥️ Screen capture stopped'
+    );
+  }
+
+  /*
+   * =========================================================
+   * STOP CAMERA STREAM
+   * =========================================================
+   *
+   * Camera is only used for the UI preview.
+   */
+  if (session.cameraStream) {
+    session.cameraStream
+      .getTracks()
+      .forEach((track) => {
+        try {
+          track.stop();
+        } catch {}
+      });
+
+    console.log(
+      '🎥 Camera preview stopped'
+    );
+  }
+
+  /*
+   * =========================================================
+   * STOP ORIGINAL SOURCE STREAM
+   * =========================================================
+   *
+   * This is mainly relevant for audio mode.
+   */
+  if (session.sourceStream) {
+    session.sourceStream
+      .getTracks()
+      .forEach((track) => {
+        try {
+          track.stop();
+        } catch {}
+      });
+  }
+
+  /*
+   * =========================================================
+   * STOP MEDIARECORDER STREAM
+   * =========================================================
+   */
+  if (session.stream) {
+    session.stream
+      .getTracks()
+      .forEach((track) => {
+        try {
+          track.stop();
+        } catch {}
+      });
+  }
+
+  /*
+   * =========================================================
+   * DISCONNECT MICROPHONE FROM MIXER
+   * =========================================================
+   */
+  if (
+    microphoneSourceRef.current
+  ) {
+    try {
+      microphoneSourceRef.current.disconnect();
+    } catch {}
+
+    microphoneSourceRef.current =
+      null;
+  }
+
+  /*
+   * =========================================================
+   * CLEAR RECORDING MIXER
+   * =========================================================
+   *
+   * IMPORTANT:
+   * Do NOT close the AudioContext here.
+   *
+   * The same AudioContext is used by
+   * the AI TTS playback.
+   */
+  recordingDestinationRef.current =
+    null;
+
+  recordingAudioContextRef.current =
+    null;
+
+  /*
+   * =========================================================
+   * CLEAR CAMERA PREVIEW
+   * =========================================================
+   */
+  if (videoRef.current) {
+    videoRef.current.srcObject =
+      null;
+  }
+
+  /*
+   * =========================================================
+   * CLEAR RECORDING SESSION
+   * =========================================================
+   */
+  if (
+    recordingSessionRef.current ===
     session
-  ) => {
-    if (!session) {
-      return;
-    }
+  ) {
+    recordingSessionRef.current =
+      null;
+  }
 
-    if (session.stream) {
-      session.stream
-        .getTracks()
-        .forEach(
-          (track) => {
-            try {
-              track.stop();
-            } catch {}
-          }
-        );
-    }
-
-    if (videoRef.current) {
-      videoRef.current.srcObject =
-        null;
-    }
-
-    if (
-      recordingSessionRef.current ===
-      session
-    ) {
-      recordingSessionRef.current =
-        null;
-    }
-  };
+  console.log(
+    '✅ Recording cleanup complete'
+  );
+};
 
   /*
    * =========================================================
@@ -1123,6 +1537,20 @@ const VoiceInterview = ({
       formData.append(
         'sessionId',
         sessionId
+      );
+
+      /*
+       * Backend chooses:
+       *
+       * audio
+       *   → AI_MOCK/audio/
+       *
+       * video
+       *   → AI_MOCK/video+audio/
+       */
+      formData.append(
+        'recordingMode',
+        recordingMode
       );
 
       console.log(
@@ -2152,7 +2580,7 @@ const VoiceInterview = ({
 
         /*
          * =====================================================
-         * IMPORTANT DATABASE CHANGE
+         * DATABASE CHANGE
          * =====================================================
          *
          * Backend returns:
@@ -2167,9 +2595,11 @@ const VoiceInterview = ({
          *
          * AI_MOCK.recording_path
          *
-         * The actual recording remains in:
+         * Audio:
+         * AI_MOCK/audio/
          *
-         * Supabase Storage → recordings
+         * Video:
+         * AI_MOCK/video+audio/
          */
 
         const recordingPath =
@@ -2182,18 +2612,12 @@ const VoiceInterview = ({
           recordingPath
         );
 
-        /*
-         * Send transcript + recording
-         * path to App.jsx.
-         */
-
         if (onEndInterview) {
           await onEndInterview(
             transcriptRef.current,
             recordingPath
           );
         }
-
       } catch (err) {
         console.error(
           '❌ Failed to finish voice interview:',
