@@ -100,7 +100,7 @@ body {
   display: block;
   z-index: -100;
   pointer-events: none;
-  opacity: 1;
+  opacity: .8;
   filter: none;
 }
 

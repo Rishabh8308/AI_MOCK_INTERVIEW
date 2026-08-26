@@ -24,6 +24,15 @@ const VoiceInterview = ({
   const [audioLevel, setAudioLevel] =
     useState(0);
 
+  /*
+   * =========================================================
+   * CHEAT WARNING
+   * =========================================================
+   */
+
+  const [cheatWarning, setCheatWarning] =
+    useState(false);
+
   const mountedRef =
     useRef(true);
 
@@ -32,6 +41,47 @@ const VoiceInterview = ({
 
   const audioLevelRef =
     useRef(0);
+
+  /*
+   * =========================================================
+   * CHEAT / TAB / WINDOW SWITCH DETECTION
+   * =========================================================
+   *
+   * Detects:
+   *
+   * 1. Switching Chrome tabs
+   * 2. Switching to another application
+   * 3. Alt + Tab
+   * 4. Clicking another application/window
+   * 5. Minimizing the browser
+   *
+   * FIRST VIOLATION:
+   *   Candidate leaves the interview.
+   *   When they return, warning appears.
+   *
+   * SECOND VIOLATION:
+   *   Candidate leaves again.
+   *   When they return, interview ends.
+   *
+   * IMPORTANT:
+   * blur + visibilitychange from the same
+   * action are treated as ONE violation.
+   */
+
+  const visibilityViolationCountRef =
+    useRef(0);
+
+  const wasPageHiddenRef =
+    useRef(false);
+
+  const cheatWarningPendingRef =
+    useRef(false);
+
+  const endingInterviewRef =
+    useRef(false);
+
+  const handleEndInterviewRef =
+    useRef(null);
 
   /*
    * =========================================================
@@ -284,24 +334,12 @@ const VoiceInterview = ({
 
     gainNode.gain.value = 1;
 
-    /*
-     * AI TTS → GainNode
-     */
     source.connect(gainNode);
 
-    /*
-     * AI TTS → Speakers
-     */
     gainNode.connect(
       context.destination
     );
 
-    /*
-     * AI TTS → Recording Mixer
-     *
-     * The recording destination uses
-     * the SAME AudioContext as this source.
-     */
     if (
       recordingDestinationRef.current
     ) {
@@ -667,6 +705,10 @@ const VoiceInterview = ({
 
     let stream = null;
 
+    let cameraStream = null;
+
+    let screenStream = null;
+
     try {
       if (
         !navigator.mediaDevices ||
@@ -687,129 +729,105 @@ const VoiceInterview = ({
       }
 
       /*
- * =========================================================
- * GET RECORDING MEDIA
- * =========================================================
- *
- * AUDIO MODE:
- *   Microphone only
- *
- * VIDEO MODE:
- *   Screen → recorded video
- *   Camera → UI preview
- *   Microphone → mixed audio
- */
+       * =========================================================
+       * GET RECORDING MEDIA
+       * =========================================================
+       *
+       * AUDIO MODE:
+       *   Microphone only
+       *
+       * VIDEO MODE:
+       *   Screen → recorded video
+       *   Camera → UI preview
+       *   Microphone → mixed audio
+       */
 
-let cameraStream = null;
-let screenStream = null;
+      if (recordingMode === 'video') {
+        console.log(
+          '🖥️ Requesting screen capture...'
+        );
 
-if (recordingMode === 'video') {
-  console.log(
-    '🖥️ Requesting screen capture...'
-  );
+        screenStream =
+          await navigator.mediaDevices.getDisplayMedia({
+            video: {
+              cursor: 'always'
+            },
+            audio: false
+          });
 
-  /*
-   * Screen is the video source that
-   * will actually be recorded.
-   */
-  screenStream =
-    await navigator.mediaDevices.getDisplayMedia({
-      video: {
-        cursor: 'always'
-      },
-      audio: false
-    });
+        const screenVideoTrack =
+          screenStream.getVideoTracks()[0];
 
-  const screenVideoTrack =
-  screenStream.getVideoTracks()[0];
+        if (screenVideoTrack) {
+          screenVideoTrack.onended = () => {
+            console.log(
+              '🖥️ User stopped screen sharing'
+            );
 
-if (screenVideoTrack) {
-  screenVideoTrack.onended = () => {
-    console.log(
-      '🖥️ User stopped screen sharing'
-    );
+            if (
+              mountedRef.current &&
+              statusRef.current !==
+                'uploading'
+            ) {
+              setError(
+                'Screen sharing was stopped. Please end the interview.'
+              );
+            }
+          };
+        }
 
-    if (
-      mountedRef.current &&
-      statusRef.current !==
-        'uploading'
-    ) {
-      setError(
-        'Screen sharing was stopped. Please end the interview.'
-      );
-    }
-  };
-}  
+        console.log(
+          '✅ Screen stream obtained:',
+          screenStream
+        );
 
-  console.log(
-    '✅ Screen stream obtained:',
-    screenStream
-  );
+        /*
+         * Camera is ONLY for the live UI preview.
+         */
+        cameraStream =
+          await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: {
+                ideal: 1280
+              },
+              height: {
+                ideal: 720
+              },
+              facingMode: 'user'
+            },
+            audio: true
+          });
 
-  /*
-   * Camera is ONLY for the live UI preview.
-   */
-  cameraStream =
-    await navigator.mediaDevices.getUserMedia({
-      video: {
-        width: {
-          ideal: 1280
-        },
-        height: {
-          ideal: 720
-        },
-        facingMode: 'user'
-      },
-      audio: true
-    });
+        console.log(
+          '✅ Camera stream obtained for preview:',
+          cameraStream
+        );
 
-  console.log(
-    '✅ Camera stream obtained for preview:',
-    cameraStream
-  );
+        if (videoRef.current) {
+          videoRef.current.srcObject =
+            cameraStream;
 
-  /*
-   * The camera preview continues to use
-   * the camera stream.
-   */
-  if (videoRef.current) {
-    videoRef.current.srcObject =
-      cameraStream;
+          try {
+            await videoRef.current.play();
+          } catch {}
+        }
 
-    try {
-      await videoRef.current.play();
-    } catch {}
-  }
-
-  /*
-   * IMPORTANT:
-   * `stream` is the source used by the
-   * audio mixer.
-   *
-   * We use the camera stream here because
-   * it contains the microphone.
-   */
-  stream = cameraStream;
-
-} else {
-  /*
-   * AUDIO MODE
-   *
-   * Nothing changes here.
-   */
-  stream =
-    await navigator.mediaDevices.getUserMedia({
-      audio: true
-    });
-}
-
-console.log(
-  '🎙️ Recording source stream:',
-  stream
-);
+        /*
+         * Camera stream contains the microphone.
+         */
+        stream = cameraStream;
+      } else {
+        /*
+         * AUDIO MODE
+         */
+        stream =
+          await navigator.mediaDevices.getUserMedia({
+            audio: true
+          });
+      }
 
       console.log(
-        '✅ Media stream obtained:',
+        '🎙️ Recording source stream:',
         stream
       );
 
@@ -823,9 +841,9 @@ console.log(
         stream.getAudioTracks();
 
       const videoTracks =
-  recordingMode === 'video'
-    ? screenStream.getVideoTracks()
-    : [];
+        recordingMode === 'video'
+          ? screenStream.getVideoTracks()
+          : [];
 
       console.log(
         '🎙️ Media tracks:',
@@ -850,20 +868,8 @@ console.log(
         videoTracks.length === 0
       ) {
         throw new Error(
-          'Camera video track was not obtained.'
+          'Screen video track was not obtained.'
         );
-      }
-
-      if (
-        recordingMode === 'video' &&
-        videoRef.current
-      ) {
-        videoRef.current.srcObject =
-          stream;
-
-        try {
-          await videoRef.current.play();
-        } catch {}
       }
 
       /*
@@ -883,9 +889,6 @@ console.log(
           stream
         );
 
-      /*
-       * Microphone → recording mixer
-       */
       microphoneSource.connect(
         recordingDestination
       );
@@ -945,19 +948,13 @@ console.log(
        * =========================================================
        * BUILD RECORDING STREAM
        * =========================================================
-       *
-       * Video mode:
-       *   Camera video + mixed audio
-       *
-       * Audio mode:
-       *   Mixed audio only
        */
 
       const recordingStream =
         new MediaStream();
 
       /*
-       * Add camera video tracks.
+       * Add SCREEN video tracks.
        */
       videoTracks.forEach(
         (track) => {
@@ -970,7 +967,7 @@ console.log(
       /*
        * Add mixed audio track.
        *
-       * This contains:
+       * Contains:
        * - microphone
        * - AI TTS
        */
@@ -1028,39 +1025,37 @@ console.log(
       );
 
       const session = {
-  recorder,
+        recorder,
 
-  // Stream given to MediaRecorder
-  stream: recordingStream,
+        stream:
+          recordingStream,
 
-  // Original microphone/camera stream
-  sourceStream: stream,
+        sourceStream:
+          stream,
 
-  // Screen stream used for the recorded video
-  screenStream,
+        screenStream,
 
-  // Camera stream used for the UI preview
-  cameraStream,
+        cameraStream,
 
-  chunks: [],
+        chunks: [],
 
-  mimeType:
-    recorder.mimeType ||
-    selectedMimeType ||
-    (
-      recordingMode === 'video'
-        ? 'video/webm'
-        : 'audio/webm'
-    ),
+        mimeType:
+          recorder.mimeType ||
+          selectedMimeType ||
+          (
+            recordingMode === 'video'
+              ? 'video/webm'
+              : 'audio/webm'
+          ),
 
-  stopped: false,
+        stopped: false,
 
-  resolve: null,
+        resolve: null,
 
-  reject: null,
+        reject: null,
 
-  stopPromise: null
-};
+        stopPromise: null
+      };
 
       recordingSessionRef.current =
         session;
@@ -1166,10 +1161,30 @@ console.log(
         err
       );
 
-      /*
-       * Clean up the original stream
-       * if recording initialization fails.
-       */
+      if (screenStream) {
+        screenStream
+          .getTracks()
+          .forEach(
+            (track) => {
+              try {
+                track.stop();
+              } catch {}
+            }
+          );
+      }
+
+      if (cameraStream) {
+        cameraStream
+          .getTracks()
+          .forEach(
+            (track) => {
+              try {
+                track.stop();
+              } catch {}
+            }
+          );
+      }
+
       if (stream) {
         stream
           .getTracks()
@@ -1213,7 +1228,7 @@ console.log(
       ) {
         setError(
           recordingMode === 'video'
-            ? 'Camera and microphone permission was denied.'
+            ? 'Camera, microphone, or screen-sharing permission was denied.'
             : 'Microphone permission was denied.'
         );
       } else if (
@@ -1354,150 +1369,98 @@ console.log(
    */
 
   const cleanupRecording = (
-  session
-) => {
-  if (!session) {
-    return;
-  }
-
-  console.log(
-    '🧹 Cleaning up recording streams...'
-  );
-
-  /*
-   * =========================================================
-   * STOP SCREEN STREAM
-   * =========================================================
-   *
-   * This stops screen sharing.
-   */
-  if (session.screenStream) {
-    session.screenStream
-      .getTracks()
-      .forEach((track) => {
-        try {
-          track.stop();
-        } catch {}
-      });
-
-    console.log(
-      '🖥️ Screen capture stopped'
-    );
-  }
-
-  /*
-   * =========================================================
-   * STOP CAMERA STREAM
-   * =========================================================
-   *
-   * Camera is only used for the UI preview.
-   */
-  if (session.cameraStream) {
-    session.cameraStream
-      .getTracks()
-      .forEach((track) => {
-        try {
-          track.stop();
-        } catch {}
-      });
-
-    console.log(
-      '🎥 Camera preview stopped'
-    );
-  }
-
-  /*
-   * =========================================================
-   * STOP ORIGINAL SOURCE STREAM
-   * =========================================================
-   *
-   * This is mainly relevant for audio mode.
-   */
-  if (session.sourceStream) {
-    session.sourceStream
-      .getTracks()
-      .forEach((track) => {
-        try {
-          track.stop();
-        } catch {}
-      });
-  }
-
-  /*
-   * =========================================================
-   * STOP MEDIARECORDER STREAM
-   * =========================================================
-   */
-  if (session.stream) {
-    session.stream
-      .getTracks()
-      .forEach((track) => {
-        try {
-          track.stop();
-        } catch {}
-      });
-  }
-
-  /*
-   * =========================================================
-   * DISCONNECT MICROPHONE FROM MIXER
-   * =========================================================
-   */
-  if (
-    microphoneSourceRef.current
-  ) {
-    try {
-      microphoneSourceRef.current.disconnect();
-    } catch {}
-
-    microphoneSourceRef.current =
-      null;
-  }
-
-  /*
-   * =========================================================
-   * CLEAR RECORDING MIXER
-   * =========================================================
-   *
-   * IMPORTANT:
-   * Do NOT close the AudioContext here.
-   *
-   * The same AudioContext is used by
-   * the AI TTS playback.
-   */
-  recordingDestinationRef.current =
-    null;
-
-  recordingAudioContextRef.current =
-    null;
-
-  /*
-   * =========================================================
-   * CLEAR CAMERA PREVIEW
-   * =========================================================
-   */
-  if (videoRef.current) {
-    videoRef.current.srcObject =
-      null;
-  }
-
-  /*
-   * =========================================================
-   * CLEAR RECORDING SESSION
-   * =========================================================
-   */
-  if (
-    recordingSessionRef.current ===
     session
-  ) {
-    recordingSessionRef.current =
-      null;
-  }
+  ) => {
+    if (!session) {
+      return;
+    }
 
-  console.log(
-    '✅ Recording cleanup complete'
-  );
-};
+    console.log(
+      '🧹 Cleaning up recording streams...'
+    );
+
+    if (session.screenStream) {
+      session.screenStream
+        .getTracks()
+        .forEach((track) => {
+          try {
+            track.stop();
+          } catch {}
+        });
+
+      console.log(
+        '🖥️ Screen capture stopped'
+      );
+    }
+
+    if (session.cameraStream) {
+      session.cameraStream
+        .getTracks()
+        .forEach((track) => {
+          try {
+            track.stop();
+          } catch {}
+        });
+
+      console.log(
+        '🎥 Camera preview stopped'
+      );
+    }
+
+    if (session.sourceStream) {
+      session.sourceStream
+        .getTracks()
+        .forEach((track) => {
+          try {
+            track.stop();
+          } catch {}
+        });
+    }
+
+    if (session.stream) {
+      session.stream
+        .getTracks()
+        .forEach((track) => {
+          try {
+            track.stop();
+          } catch {}
+        });
+    }
+
+    if (
+      microphoneSourceRef.current
+    ) {
+      try {
+        microphoneSourceRef.current.disconnect();
+      } catch {}
+
+      microphoneSourceRef.current =
+        null;
+    }
+
+    recordingDestinationRef.current =
+      null;
+
+    recordingAudioContextRef.current =
+      null;
+
+    if (videoRef.current) {
+      videoRef.current.srcObject =
+        null;
+    }
+
+    if (
+      recordingSessionRef.current ===
+      session
+    ) {
+      recordingSessionRef.current =
+        null;
+    }
+
+    console.log(
+      '✅ Recording cleanup complete'
+    );
+  };
 
   /*
    * =========================================================
@@ -1539,15 +1502,6 @@ console.log(
         sessionId
       );
 
-      /*
-       * Backend chooses:
-       *
-       * audio
-       *   → AI_MOCK/audio/
-       *
-       * video
-       *   → AI_MOCK/video+audio/
-       */
       formData.append(
         'recordingMode',
         recordingMode
@@ -2095,6 +2049,327 @@ console.log(
 
   /*
    * =========================================================
+   * CHEAT / TAB / WINDOW SWITCH DETECTION
+   * =========================================================
+   *
+   * Detects:
+   *
+   * 1. Switching Chrome tabs
+   * 2. Switching to another application
+   * 3. Alt + Tab
+   * 4. Clicking another application/window
+   * 5. Minimizing the browser
+   *
+   * FIRST VIOLATION:
+   *   Candidate leaves the interview.
+   *   When they return, warning appears.
+   *
+   * SECOND VIOLATION:
+   *   Candidate leaves again.
+   *   When they return, interview ends.
+   *
+   * IMPORTANT:
+   * blur + visibilitychange from the same
+   * action are treated as ONE violation.
+   */
+
+  useEffect(() => {
+    /*
+     * =======================================================
+     * MARK INTERVIEW AS AWAY
+     * =======================================================
+     */
+
+    const markPageAsAway = (source) => {
+      /*
+       * Ignore if the interview is already
+       * intentionally ending.
+       */
+      if (
+        endingInterviewRef.current
+      ) {
+        return;
+      }
+
+      /*
+       * Do not monitor before the interview
+       * has actually started.
+       */
+      if (
+        !conversationStartedRef.current
+      ) {
+        return;
+      }
+
+      /*
+       * Do not monitor while the recording
+       * is already being uploaded.
+       */
+      if (
+        statusRef.current ===
+        'uploading'
+      ) {
+        return;
+      }
+
+      /*
+       * blur + visibilitychange can both fire
+       * for one app/tab switch.
+       *
+       * Only mark the first event as the
+       * departure.
+       */
+      if (
+        wasPageHiddenRef.current
+      ) {
+        return;
+      }
+
+      wasPageHiddenRef.current =
+        true;
+
+      console.log(
+        `⚠️ Interview lost focus (${source}).`
+      );
+    };
+
+    /*
+     * =======================================================
+     * PROCESS RETURN TO INTERVIEW
+     * =======================================================
+     */
+
+    const processReturnToInterview = () => {
+      if (
+        endingInterviewRef.current
+      ) {
+        return;
+      }
+
+      if (
+        !conversationStartedRef.current
+      ) {
+        return;
+      }
+
+      if (
+        statusRef.current ===
+        'uploading'
+      ) {
+        return;
+      }
+
+      /*
+       * Candidate never actually left.
+       */
+      if (
+        !wasPageHiddenRef.current
+      ) {
+        return;
+      }
+
+      /*
+       * If the document is still hidden,
+       * this is not a real return yet.
+       */
+      if (
+        document.hidden
+      ) {
+        return;
+      }
+
+      /*
+       * Candidate has returned.
+       */
+      wasPageHiddenRef.current =
+        false;
+
+      visibilityViolationCountRef.current +=
+        1;
+
+      const violationCount =
+        visibilityViolationCountRef.current;
+
+      console.log(
+        '⚠️ Interview tab/window violation:',
+        violationCount
+      );
+
+      /*
+       * =====================================================
+       * FIRST VIOLATION
+       * =====================================================
+       */
+
+      if (
+        violationCount === 1
+      ) {
+        console.log(
+          '⚠️ First violation. Showing warning.'
+        );
+
+        cheatWarningPendingRef.current =
+          true;
+
+        if (mountedRef.current) {
+          setCheatWarning(true);
+        }
+
+        return;
+      }
+
+      /*
+       * =====================================================
+       * SECOND VIOLATION
+       * =====================================================
+       */
+
+      if (
+        violationCount >= 2
+      ) {
+        console.log(
+          '🛑 Second tab/window violation. Ending interview.'
+        );
+
+        cheatWarningPendingRef.current =
+          false;
+
+        if (mountedRef.current) {
+          setCheatWarning(false);
+        }
+
+        /*
+         * IMPORTANT:
+         *
+         * Do NOT set
+         * endingInterviewRef.current
+         * here.
+         *
+         * handleEndInterview() itself
+         * sets that flag.
+         */
+        if (
+          handleEndInterviewRef.current
+        ) {
+          handleEndInterviewRef.current();
+        }
+      }
+    };
+
+    /*
+     * =======================================================
+     * DOCUMENT VISIBILITY CHANGE
+     * =======================================================
+     *
+     * Handles:
+     *
+     * - Chrome tab switching
+     * - Browser becoming hidden
+     * - Browser minimized in many cases
+     */
+
+    const handleVisibilityChange = () => {
+      if (
+        document.hidden
+      ) {
+        markPageAsAway(
+          'visibilitychange'
+        );
+
+        return;
+      }
+
+      /*
+       * Give the browser a moment to finish
+       * updating focus/visibility state.
+       */
+      setTimeout(() => {
+        processReturnToInterview();
+      }, 100);
+    };
+
+    /*
+     * =======================================================
+     * WINDOW BLUR
+     * =======================================================
+     *
+     * Handles:
+     *
+     * - Alt + Tab
+     * - Clicking another application
+     * - Switching to VS Code
+     * - Switching to ChatGPT
+     * - Clicking another browser window
+     */
+
+    const handleWindowBlur = () => {
+      markPageAsAway(
+        'window blur'
+      );
+    };
+
+    /*
+     * =======================================================
+     * WINDOW FOCUS
+     * =======================================================
+     *
+     * Candidate has returned to the
+     * interview browser window.
+     */
+
+    const handleWindowFocus = () => {
+      setTimeout(() => {
+        processReturnToInterview();
+      }, 100);
+    };
+
+    /*
+     * =======================================================
+     * ADD EVENT LISTENERS
+     * =======================================================
+     */
+
+    document.addEventListener(
+      'visibilitychange',
+      handleVisibilityChange
+    );
+
+    window.addEventListener(
+      'blur',
+      handleWindowBlur
+    );
+
+    window.addEventListener(
+      'focus',
+      handleWindowFocus
+    );
+
+    /*
+     * =======================================================
+     * CLEANUP
+     * =======================================================
+     */
+
+    return () => {
+      document.removeEventListener(
+        'visibilitychange',
+        handleVisibilityChange
+      );
+
+      window.removeEventListener(
+        'blur',
+        handleWindowBlur
+      );
+
+      window.removeEventListener(
+        'focus',
+        handleWindowFocus
+      );
+    };
+  }, []);
+
+  /*
+   * =========================================================
    * START INTERVIEW
    * =========================================================
    */
@@ -2104,51 +2379,55 @@ console.log(
       return;
     }
 
-    const timer = setTimeout(async () => {
-      if (
-        conversationStartedRef.current
-      ) {
-        return;
-      }
+    const timer =
+      setTimeout(
+        async () => {
+          if (
+            conversationStartedRef.current
+          ) {
+            return;
+          }
 
-      conversationStartedRef.current =
-        true;
+          conversationStartedRef.current =
+            true;
 
-      console.log(
-        '🚨 INTERVIEW START TIMER FIRED'
+          console.log(
+            '🚨 INTERVIEW START TIMER FIRED'
+          );
+
+          console.log(
+            '🚨 ABOUT TO START RECORDING'
+          );
+
+          transcriptRef.current.push({
+            sender: 'ai',
+            text: initialMessage,
+            timestamp:
+              new Date().toISOString()
+          });
+
+          await startRecording();
+
+          console.log(
+            '🚨 START RECORDING FINISHED'
+          );
+
+          await new Promise(
+            (resolve) =>
+              setTimeout(
+                resolve,
+                150
+              )
+          );
+
+          console.log(
+            '🚨 ABOUT TO SPEAK AI'
+          );
+
+          speakAI(initialMessage);
+        },
+        500
       );
-
-      console.log(
-        '🚨 ABOUT TO START RECORDING'
-      );
-
-      transcriptRef.current.push({
-        sender: 'ai',
-        text: initialMessage,
-        timestamp:
-          new Date().toISOString()
-      });
-
-      await startRecording();
-
-      console.log(
-        '🚨 START RECORDING FINISHED'
-      );
-
-      await new Promise(
-        (resolve) =>
-          setTimeout(
-            resolve,
-            150
-          )
-      );
-
-      console.log(
-        '🚨 ABOUT TO SPEAK AI'
-      );
-
-      speakAI(initialMessage);
-    }, 500);
 
     return () => {
       clearTimeout(timer);
@@ -2504,6 +2783,20 @@ console.log(
         return;
       }
 
+      /*
+       * Tell cheat detection that the
+       * interview is intentionally ending.
+       */
+      endingInterviewRef.current =
+        true;
+
+      cheatWarningPendingRef.current =
+        false;
+
+      if (mountedRef.current) {
+        setCheatWarning(false);
+      }
+
       try {
         console.log(
           '🛑 Ending voice interview...'
@@ -2548,8 +2841,7 @@ console.log(
           null;
 
         /*
-         * Upload recording to
-         * Supabase Storage.
+         * Upload recording to Supabase Storage.
          */
 
         if (
@@ -2577,30 +2869,6 @@ console.log(
           '✅ Interview recording upload complete:',
           uploadResult
         );
-
-        /*
-         * =====================================================
-         * DATABASE CHANGE
-         * =====================================================
-         *
-         * Backend returns:
-         *
-         * {
-         *   message,
-         *   url,
-         *   filename
-         * }
-         *
-         * We store the filename/path in:
-         *
-         * AI_MOCK.recording_path
-         *
-         * Audio:
-         * AI_MOCK/audio/
-         *
-         * Video:
-         * AI_MOCK/video+audio/
-         */
 
         const recordingPath =
           uploadResult?.filename ||
@@ -2636,6 +2904,13 @@ console.log(
         }
       }
     };
+
+  /*
+   * Keep the latest handleEndInterview function
+   * available to the visibility-change detector.
+   */
+  handleEndInterviewRef.current =
+    handleEndInterview;
 
   /*
    * =========================================================
@@ -2718,446 +2993,546 @@ console.log(
    */
 
   return (
-    <div
-      style={{
-        minHeight: '78vh',
-        width: '100%',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '1rem'
-      }}
-    >
+    <>
+      {cheatWarning && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 99999,
+            background:
+              'rgba(0, 0, 0, 0.78)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1.5rem'
+          }}
+        >
+          <div
+            style={{
+              width: '100%',
+              maxWidth: '500px',
+              padding: '2rem',
+              borderRadius: '20px',
+              background:
+                'rgba(15, 18, 35, 0.98)',
+              border:
+                '1px solid rgba(239, 68, 68, 0.45)',
+              boxShadow:
+                '0 25px 80px rgba(0,0,0,0.6)',
+              textAlign: 'center'
+            }}
+          >
+            <div
+              style={{
+                fontSize: '2rem',
+                marginBottom: '0.75rem'
+              }}
+            >
+              ⚠️
+            </div>
+
+            <h2
+              style={{
+                color: '#f8fafc',
+                margin: 0,
+                marginBottom: '0.75rem'
+              }}
+            >
+              Final Warning
+            </h2>
+
+            <p
+              style={{
+                color: '#cbd5e1',
+                lineHeight: 1.6,
+                marginBottom: '1.5rem'
+              }}
+            >
+              You left the interview window.
+              Please remain on the interview
+              screen for the rest of the interview.
+            </p>
+
+            <p
+              style={{
+                color: '#fca5a5',
+                fontSize: '0.85rem',
+                marginBottom: '1.5rem'
+              }}
+            >
+              Leaving the interview window again
+              will automatically end the interview.
+            </p>
+
+            <button
+              type="button"
+              onClick={() => {
+                cheatWarningPendingRef.current =
+                  false;
+
+                setCheatWarning(false);
+              }}
+              style={{
+                padding:
+                  '0.8rem 1.8rem',
+                border: 'none',
+                borderRadius:
+                  '999px',
+                background:
+                  'linear-gradient(135deg, #7c3aed, #ec4899)',
+                color: '#fff',
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}
+            >
+              Continue Interview
+            </button>
+          </div>
+        </div>
+      )}
+
       <div
         style={{
+          minHeight: '78vh',
           width: '100%',
-          maxWidth: '1100px',
-          minHeight: '74vh',
-          borderRadius: '30px',
-          position: 'relative',
-          overflow: 'hidden',
-          background:
-            'radial-gradient(circle at center, rgba(30,25,75,0.3), rgba(5,8,20,0.96) 60%)',
-          border:
-            '1px solid rgba(130,120,255,0.15)',
-          boxShadow:
-            '0 30px 100px rgba(0,0,0,0.45)',
           display: 'flex',
-          flexDirection: 'column'
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '1rem'
         }}
       >
         <div
           style={{
-            padding:
-              '1.5rem 2rem',
+            width: '100%',
+            maxWidth: '1100px',
+            minHeight: '74vh',
+            borderRadius: '30px',
+            position: 'relative',
+            overflow: 'hidden',
+            background:
+              'radial-gradient(circle at center, rgba(30,25,75,0.3), rgba(5,8,20,0.96) 60%)',
+            border:
+              '1px solid rgba(130,120,255,0.15)',
+            boxShadow:
+              '0 30px 100px rgba(0,0,0,0.45)',
             display: 'flex',
-            justifyContent:
-              'space-between',
-            alignItems: 'center',
-            position:
-              'relative',
-            zIndex: 5
+            flexDirection: 'column'
           }}
         >
-          <div>
-            <div
-              style={{
-                color:
-                  '#c084fc',
-                fontSize:
-                  '0.68rem',
-                fontWeight: 800,
-                letterSpacing:
-                  '0.2em'
-              }}
-            >
-              VOICE INTERVIEW
-            </div>
-
-            <div
-              style={{
-                color:
-                  '#f8fafc',
-                fontSize:
-                  '1.25rem',
-                fontWeight: 700,
-                marginTop:
-                  '0.35rem'
-              }}
-            >
-              AI Interviewer
-            </div>
-          </div>
-
           <div
             style={{
-              display: 'flex',
-              alignItems:
-                'center',
-              gap: '0.5rem',
               padding:
-                '0.55rem 0.85rem',
-              borderRadius:
-                '999px',
-              background:
-                'rgba(255,255,255,0.04)',
-              border:
-                '1px solid rgba(255,255,255,0.08)',
-              color:
-                '#cbd5e1',
-              fontSize:
-                '0.75rem'
+                '1.5rem 2rem',
+              display: 'flex',
+              justifyContent:
+                'space-between',
+              alignItems: 'center',
+              position:
+                'relative',
+              zIndex: 5
             }}
           >
-            <span
-              style={{
-                width: '7px',
-                height: '7px',
-                borderRadius:
-                  '50%',
-                background:
-                  status ===
-                  'error'
-                    ? '#ef4444'
-                    : '#22c55e',
-                boxShadow:
-                  status ===
-                  'error'
-                    ? '0 0 10px rgba(239,68,68,0.8)'
-                    : '0 0 10px rgba(34,197,94,0.8)'
-              }}
-            />
-
-            Question{' '}
-            {questionCount}
-          </div>
-        </div>
-
-        <div
-          style={{
-            flex: 1,
-            display: 'flex',
-            flexDirection:
-              'column',
-            alignItems:
-              'center',
-            justifyContent:
-              'center',
-            position:
-              'relative'
-          }}
-        >
-          {recordingMode ===
-            'video' && (
-            <div
-              style={{
-                position:
-                  'absolute',
-                top: '1rem',
-                right: '1.5rem',
-                width:
-                  '180px',
-                height:
-                  '125px',
-                borderRadius:
-                  '18px',
-                overflow:
-                  'hidden',
-                background:
-                  '#050814',
-                border:
-                  '1px solid rgba(255,255,255,0.16)',
-                boxShadow:
-                  '0 15px 40px rgba(0,0,0,0.5)',
-                zIndex: 10
-              }}
-            >
-              <video
-                ref={videoRef}
-                autoPlay
-                muted
-                playsInline
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit:
-                    'cover',
-                  transform:
-                    'scaleX(-1)',
-                  display:
-                    'block'
-                }}
-              />
-
+            <div>
               <div
                 style={{
-                  position:
-                    'absolute',
-                  left: '9px',
-                  bottom: '9px',
-                  padding:
-                    '4px 8px',
-                  borderRadius:
-                    '999px',
-                  background:
-                    'rgba(0,0,0,0.55)',
-                  border:
-                    '1px solid rgba(255,255,255,0.12)',
-                  color: '#fff',
+                  color:
+                    '#c084fc',
                   fontSize:
-                    '0.65rem',
-                  fontWeight: 700,
-                  backdropFilter:
-                    'blur(8px)'
+                    '0.68rem',
+                  fontWeight: 800,
+                  letterSpacing:
+                    '0.2em'
                 }}
               >
-                You
+                VOICE INTERVIEW
               </div>
 
               <div
                 style={{
-                  position:
-                    'absolute',
-                  right: '9px',
-                  top: '9px',
-                  width: '8px',
-                  height: '8px',
+                  color:
+                    '#f8fafc',
+                  fontSize:
+                    '1.25rem',
+                  fontWeight: 700,
+                  marginTop:
+                    '0.35rem'
+                }}
+              >
+                AI Interviewer
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                alignItems:
+                  'center',
+                gap: '0.5rem',
+                padding:
+                  '0.55rem 0.85rem',
+                borderRadius:
+                  '999px',
+                background:
+                  'rgba(255,255,255,0.04)',
+                border:
+                  '1px solid rgba(255,255,255,0.08)',
+                color:
+                  '#cbd5e1',
+                fontSize:
+                  '0.75rem'
+              }}
+            >
+              <span
+                style={{
+                  width: '7px',
+                  height: '7px',
                   borderRadius:
                     '50%',
                   background:
-                    '#22c55e',
+                    status ===
+                    'error'
+                      ? '#ef4444'
+                      : '#22c55e',
                   boxShadow:
-                    '0 0 10px rgba(34,197,94,0.9)'
+                    status ===
+                    'error'
+                      ? '0 0 10px rgba(239,68,68,0.8)'
+                      : '0 0 10px rgba(34,197,94,0.8)'
                 }}
               />
+
+              Question{' '}
+              {questionCount}
             </div>
-          )}
+          </div>
 
           <div
             style={{
-              position:
-                'relative',
-              width: '520px',
-              height: '520px',
-              maxWidth:
-                '92vw',
-              maxHeight:
-                '58vh',
+              flex: 1,
               display: 'flex',
+              flexDirection:
+                'column',
               alignItems:
                 'center',
               justifyContent:
-                'center'
+                'center',
+              position:
+                'relative'
             }}
           >
-            <canvas
-              ref={canvasRef}
-              onClick={
-                handleVisualizerClick
-              }
+            {recordingMode ===
+              'video' && (
+              <div
+                style={{
+                  position:
+                    'absolute',
+                  top: '1rem',
+                  right: '1.5rem',
+                  width:
+                    '180px',
+                  height:
+                    '125px',
+                  borderRadius:
+                    '18px',
+                  overflow:
+                    'hidden',
+                  background:
+                    '#050814',
+                  border:
+                    '1px solid rgba(255,255,255,0.16)',
+                  boxShadow:
+                    '0 15px 40px rgba(0,0,0,0.5)',
+                  zIndex: 10
+                }}
+              >
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit:
+                      'cover',
+                    transform:
+                      'scaleX(-1)',
+                    display:
+                      'block'
+                  }}
+                />
+
+                <div
+                  style={{
+                    position:
+                      'absolute',
+                    left: '9px',
+                    bottom: '9px',
+                    padding:
+                      '4px 8px',
+                    borderRadius:
+                      '999px',
+                    background:
+                      'rgba(0,0,0,0.55)',
+                    border:
+                      '1px solid rgba(255,255,255,0.12)',
+                    color: '#fff',
+                    fontSize:
+                      '0.65rem',
+                    fontWeight: 700,
+                    backdropFilter:
+                      'blur(8px)'
+                  }}
+                >
+                  You
+                </div>
+
+                <div
+                  style={{
+                    position:
+                      'absolute',
+                    right: '9px',
+                    top: '9px',
+                    width: '8px',
+                    height: '8px',
+                    borderRadius:
+                      '50%',
+                    background:
+                      '#22c55e',
+                    boxShadow:
+                      '0 0 10px rgba(34,197,94,0.9)'
+                  }}
+                />
+              </div>
+            )}
+
+            <div
               style={{
-                width: '100%',
-                height: '100%',
-                cursor:
-                  aiSpeaking ||
-                  status ===
-                    'thinking'
-                    ? 'default'
-                    : 'pointer'
+                position:
+                  'relative',
+                width: '520px',
+                height: '520px',
+                maxWidth:
+                  '92vw',
+                maxHeight:
+                  '58vh',
+                display: 'flex',
+                alignItems:
+                  'center',
+                justifyContent:
+                  'center'
               }}
-            />
+            >
+              <canvas
+                ref={canvasRef}
+                onClick={
+                  handleVisualizerClick
+                }
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  cursor:
+                    aiSpeaking ||
+                    status ===
+                      'thinking'
+                      ? 'default'
+                      : 'pointer'
+                }}
+              />
+            </div>
+
+            <div
+              style={{
+                textAlign:
+                  'center',
+                marginTop:
+                  '-1.5rem',
+                position:
+                  'relative',
+                zIndex: 3
+              }}
+            >
+              <div
+                style={{
+                  color:
+                    status ===
+                    'speaking'
+                      ? '#d946ef'
+                      : status ===
+                        'listening'
+                      ? '#38bdf8'
+                      : '#c4b5fd',
+                  fontSize:
+                    '1.45rem',
+                  fontWeight: 800,
+                  textShadow:
+                    '0 0 25px rgba(168,85,247,0.25)'
+                }}
+              >
+                {getStatusText()}
+              </div>
+
+              <div
+                style={{
+                  color:
+                    '#94a3b8',
+                  fontSize:
+                    '0.82rem',
+                  marginTop:
+                    '0.55rem'
+                }}
+              >
+                {status ===
+                'speaking'
+                  ? 'Listen carefully to the interviewer'
+                  : status ===
+                    'listening'
+                  ? 'Speak naturally'
+                  : status ===
+                    'thinking'
+                  ? 'Processing your response'
+                  : status ===
+                    'uploading'
+                  ? 'Uploading your interview recording'
+                  : 'Speak when you are ready'}
+              </div>
+            </div>
+
+            {error && (
+              <div
+                style={{
+                  marginTop:
+                    '1rem',
+                  maxWidth:
+                    '600px',
+                  padding:
+                    '0.7rem 1rem',
+                  borderRadius:
+                    '12px',
+                  background:
+                    'rgba(239,68,68,0.08)',
+                  border:
+                    '1px solid rgba(239,68,68,0.2)',
+                  color:
+                    '#fca5a5',
+                  fontSize:
+                    '0.75rem',
+                  textAlign:
+                    'center'
+                }}
+              >
+                {error}
+              </div>
+            )}
           </div>
 
           <div
             style={{
-              textAlign:
+              padding:
+                '1.25rem 2rem 1.5rem',
+              display:
+                'flex',
+              justifyContent:
                 'center',
-              marginTop:
-                '-1.5rem',
-              position:
-                'relative',
-              zIndex: 3
+              alignItems:
+                'center',
+              gap: '1rem'
             }}
           >
-            <div
+            <button
+              type="button"
+              onClick={
+                handleVisualizerClick
+              }
+              disabled={
+                aiSpeaking ||
+                status ===
+                  'thinking' ||
+                status ===
+                  'uploading'
+              }
               style={{
-                color:
+                width: '54px',
+                height: '54px',
+                borderRadius:
+                  '50%',
+                border:
+                  '1px solid rgba(255,255,255,0.12)',
+                background:
                   status ===
-                  'speaking'
-                    ? '#d946ef'
-                    : status ===
-                      'listening'
-                    ? '#38bdf8'
-                    : '#c4b5fd',
+                  'listening'
+                    ? 'rgba(56,189,248,0.12)'
+                    : 'rgba(255,255,255,0.04)',
+                color: '#fff',
+                cursor:
+                  aiSpeaking ||
+                  status ===
+                    'thinking' ||
+                  status ===
+                    'uploading'
+                    ? 'not-allowed'
+                    : 'pointer',
+                opacity:
+                  aiSpeaking ||
+                  status ===
+                    'thinking' ||
+                  status ===
+                    'uploading'
+                    ? 0.45
+                    : 1,
                 fontSize:
-                  '1.45rem',
-                fontWeight: 800,
-                textShadow:
-                  '0 0 25px rgba(168,85,247,0.25)'
+                  '1.15rem'
               }}
             >
-              {getStatusText()}
-            </div>
+              🎤
+            </button>
 
-            <div
+            <button
+              type="button"
+              onClick={
+                handleEndInterview
+              }
+              disabled={
+                status ===
+                'uploading'
+              }
               style={{
+                padding:
+                  '0.85rem 1.7rem',
+                borderRadius:
+                  '999px',
+                border:
+                  '1px solid rgba(236,72,153,0.35)',
+                background:
+                  'linear-gradient(135deg, rgba(126,34,206,0.3), rgba(236,72,153,0.18))',
                 color:
-                  '#94a3b8',
-                fontSize:
-                  '0.82rem',
-                marginTop:
-                  '0.55rem'
+                  '#f8fafc',
+                fontWeight:
+                  700,
+                cursor:
+                  status ===
+                  'uploading'
+                    ? 'not-allowed'
+                    : 'pointer',
+                opacity:
+                  status ===
+                  'uploading'
+                    ? 0.6
+                    : 1,
+                boxShadow:
+                  '0 0 25px rgba(236,72,153,0.08)'
               }}
             >
               {status ===
-              'speaking'
-                ? 'Listen carefully to the interviewer'
-                : status ===
-                  'listening'
-                ? 'Speak naturally'
-                : status ===
-                  'thinking'
-                ? 'Processing your response'
-                : status ===
-                  'uploading'
-                ? 'Uploading your interview recording'
-                : 'Speak when you are ready'}
-            </div>
-          </div>
-
-          {error && (
-            <div
-              style={{
-                marginTop:
-                  '1rem',
-                maxWidth:
-                  '600px',
-                padding:
-                  '0.7rem 1rem',
-                borderRadius:
-                  '12px',
-                background:
-                  'rgba(239,68,68,0.08)',
-                border:
-                  '1px solid rgba(239,68,68,0.2)',
-                color:
-                  '#fca5a5',
-                fontSize:
-                  '0.75rem',
-                textAlign:
-                  'center'
-              }}
-            >
-              {error}
-            </div>
-          )}
-        </div>
-
-        <div
-          style={{
-            padding:
-              '1.25rem 2rem 1.5rem',
-            display:
-              'flex',
-            justifyContent:
-              'center',
-            alignItems:
-              'center',
-            gap: '1rem'
-          }}
-        >
-          <button
-            type="button"
-            onClick={
-              handleVisualizerClick
-            }
-            disabled={
-              aiSpeaking ||
-              status ===
-                'thinking' ||
-              status ===
-                'uploading'
-            }
-            style={{
-              width: '54px',
-              height: '54px',
-              borderRadius:
-                '50%',
-              border:
-                '1px solid rgba(255,255,255,0.12)',
-              background:
-                status ===
-                'listening'
-                  ? 'rgba(56,189,248,0.12)'
-                  : 'rgba(255,255,255,0.04)',
-              color: '#fff',
-              cursor:
-                aiSpeaking ||
-                status ===
-                  'thinking' ||
-                status ===
-                  'uploading'
-                  ? 'not-allowed'
-                  : 'pointer',
-              opacity:
-                aiSpeaking ||
-                status ===
-                  'thinking' ||
-                status ===
-                  'uploading'
-                  ? 0.45
-                  : 1,
-              fontSize:
-                '1.15rem'
-            }}
-          >
-            🎤
-          </button>
-
-          <button
-            type="button"
-            onClick={
-              handleEndInterview
-            }
-            disabled={
-              status ===
               'uploading'
-            }
-            style={{
-              padding:
-                '0.85rem 1.7rem',
-              borderRadius:
-                '999px',
-              border:
-                '1px solid rgba(236,72,153,0.35)',
-              background:
-                'linear-gradient(135deg, rgba(126,34,206,0.3), rgba(236,72,153,0.18))',
-              color:
-                '#f8fafc',
-              fontWeight:
-                700,
-              cursor:
-                status ===
-                'uploading'
-                  ? 'not-allowed'
-                  : 'pointer',
-              opacity:
-                status ===
-                'uploading'
-                  ? 0.6
-                  : 1,
-              boxShadow:
-                '0 0 25px rgba(236,72,153,0.08)'
-            }}
-          >
-            {status ===
-            'uploading'
-              ? 'Saving...'
-              : 'End Interview'}
-          </button>
+                ? 'Saving...'
+                : 'End Interview'}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 };
 
