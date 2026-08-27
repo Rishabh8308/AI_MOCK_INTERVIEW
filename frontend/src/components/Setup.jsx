@@ -40,6 +40,126 @@ const Setup = ({ onStart, onStartVoice }) => {
 
   /*
    * =========================================================
+   * FULLSCREEN
+   * =========================================================
+   *
+   * Fullscreen must be requested from the user's Start button
+   * gesture.
+   */
+
+  const enterFullscreen = async () => {
+    if (document.fullscreenElement) {
+      return true;
+    }
+
+    if (!document.documentElement.requestFullscreen) {
+      alert(
+        'Fullscreen is not supported by this browser. Please use a supported browser and try again.'
+      );
+
+      return false;
+    }
+
+    try {
+      await document.documentElement.requestFullscreen();
+
+      return !!document.fullscreenElement;
+    } catch (err) {
+      console.error(
+        'Fullscreen request failed:',
+        err
+      );
+
+      alert(
+        'Fullscreen is required to start the interview. Please allow fullscreen and try again.'
+      );
+
+      return false;
+    }
+  };
+
+  /*
+   * =========================================================
+   * SCREEN SHARE PREPARATION
+   * =========================================================
+   *
+   * IMPORTANT:
+   *
+   * For Audio + Video interviews, screen sharing is requested
+   * BEFORE fullscreen.
+   *
+   * Chrome can temporarily leave fullscreen while its native
+   * screen/window selection dialog is open.
+   *
+   * After the user finishes the picker, handleVoiceSubmit()
+   * requests fullscreen again.
+   *
+   * The resulting MediaStream is passed to VoiceInterview so
+   * that VoiceInterview does not request screen sharing again.
+   */
+
+  const prepareVoiceVideoScreenShare = async () => {
+    if (
+      !navigator.mediaDevices ||
+      !navigator.mediaDevices.getDisplayMedia
+    ) {
+      alert(
+        'Screen sharing is not supported by this browser. Please use Google Chrome or Microsoft Edge.'
+      );
+
+      return null;
+    }
+
+    try {
+      const screenStream =
+        await navigator.mediaDevices.getDisplayMedia({
+          video: {
+            cursor: 'always'
+          },
+          audio: false
+        });
+
+      const videoTrack =
+        screenStream.getVideoTracks()[0];
+
+      if (!videoTrack) {
+        throw new Error(
+          'No screen-sharing video track was received.'
+        );
+      }
+
+      console.log(
+        '✅ Screen sharing prepared successfully.'
+      );
+
+      return screenStream;
+    } catch (err) {
+      console.error(
+        'Screen-sharing request failed:',
+        err
+      );
+
+      if (
+        err.name ===
+        'NotAllowedError'
+      ) {
+        alert(
+          'Screen sharing is required for Audio + Video interviews. Please select the interview screen/window and try again.'
+        );
+      } else {
+        alert(
+          'Unable to start screen sharing: ' +
+            (err.message ||
+              'Unknown error.')
+        );
+      }
+
+      return null;
+    }
+  };
+
+  /*
+   * =========================================================
    * SWITCH MODE
    * =========================================================
    */
@@ -84,7 +204,10 @@ const Setup = ({ onStart, onStartVoice }) => {
       }
     } catch (err) {
       console.error(err);
-      alert('Error fetching LeetCode profile.');
+
+      alert(
+        'Error fetching LeetCode profile.'
+      );
     } finally {
       setFetchingLeetcode(false);
     }
@@ -120,7 +243,10 @@ const Setup = ({ onStart, onStartVoice }) => {
       }
     } catch (err) {
       console.error(err);
-      alert('Error fetching GitHub profile.');
+
+      alert(
+        'Error fetching GitHub profile.'
+      );
     } finally {
       setFetchingGithub(false);
     }
@@ -135,16 +261,25 @@ const Setup = ({ onStart, onStartVoice }) => {
   const handleTechnicalSubmit = async (e) => {
     e.preventDefault();
 
+    const fullscreenStarted =
+      await enterFullscreen();
+
+    if (!fullscreenStarted) {
+      return;
+    }
+
     setLoading(true);
 
     const data = new FormData();
 
-    Object.keys(technicalForm).forEach((key) => {
-      data.append(
-        key,
-        technicalForm[key]
-      );
-    });
+    Object.keys(technicalForm).forEach(
+      (key) => {
+        data.append(
+          key,
+          technicalForm[key]
+        );
+      }
+    );
 
     data.append(
       'assessmentMode',
@@ -204,10 +339,119 @@ const Setup = ({ onStart, onStartVoice }) => {
    * =========================================================
    * VOICE INTERVIEW
    * =========================================================
+   *
+   * For Audio:
+   *   Fullscreen → backend → VoiceInterview
+   *
+   * For Audio + Video:
+   *   Screen-share picker
+   *        ↓
+   *   Screen sharing granted
+   *        ↓
+   *   Fullscreen requested again
+   *        ↓
+   *   Backend
+   *        ↓
+   *   VoiceInterview receives the existing screen stream
    */
 
   const handleVoiceSubmit = async (e) => {
     e.preventDefault();
+
+    /*
+     * Prevent double-clicks from creating multiple
+     * screen-share requests / interviews.
+     */
+    if (loading) {
+      return;
+    }
+
+    let screenStream = null;
+
+    /*
+     * =======================================================
+     * VIDEO MODE
+     * =======================================================
+     *
+     * Request screen sharing BEFORE fullscreen.
+     *
+     * Chrome's screen-share picker may temporarily exit
+     * fullscreen. Once the picker closes, we request
+     * fullscreen again below.
+     */
+
+    if (
+      voiceForm.recordingMode ===
+      'video'
+    ) {
+      screenStream =
+        await prepareVoiceVideoScreenShare();
+
+      if (!screenStream) {
+        return;
+      }
+
+      /*
+       * Make sure the screen-sharing track is still alive.
+       */
+      const screenTrack =
+        screenStream.getVideoTracks()[0];
+
+      if (
+        !screenTrack ||
+        screenTrack.readyState !==
+          'live'
+      ) {
+        screenStream
+          .getTracks()
+          .forEach((track) => {
+            try {
+              track.stop();
+            } catch {}
+          });
+
+        alert(
+          'Screen sharing was not started successfully. Please try again.'
+        );
+
+        return;
+      }
+    }
+
+    /*
+     * =======================================================
+     * FULLSCREEN
+     * =======================================================
+     *
+     * This happens AFTER the Chrome screen-sharing picker.
+     *
+     * Therefore, even if Chrome temporarily exits fullscreen
+     * while the picker is visible, we establish fullscreen
+     * again before the interview starts.
+     */
+
+    const fullscreenStarted =
+      await enterFullscreen();
+
+    if (!fullscreenStarted) {
+      /*
+       * If fullscreen fails, stop the already-created
+       * screen-sharing stream so the browser does not keep
+       * sharing the user's screen.
+       */
+
+      if (screenStream) {
+        screenStream
+          .getTracks()
+          .forEach((track) => {
+            try {
+              track.stop();
+            } catch {}
+          });
+      }
+
+      return;
+    }
 
     setLoading(true);
 
@@ -271,12 +515,39 @@ const Setup = ({ onStart, onStartVoice }) => {
         await response.json();
 
       if (response.ok) {
+        /*
+         * IMPORTANT:
+         *
+         * Pass the already-approved screenStream to
+         * VoiceInterview.
+         *
+         * VoiceInterview must use this stream instead of
+         * calling getDisplayMedia() a second time.
+         */
         onStartVoice(
           respData.sessionId,
           respData.reply,
-          voiceForm.recordingMode
+          voiceForm.recordingMode,
+          screenStream
         );
       } else {
+        /*
+         * Backend failed, so release the screen-sharing
+         * permission/stream.
+         */
+
+        if (screenStream) {
+          screenStream
+            .getTracks()
+            .forEach((track) => {
+              try {
+                track.stop();
+              } catch {}
+            });
+
+          screenStream = null;
+        }
+
         alert(
           'Error: ' +
             (respData.error ||
@@ -288,6 +559,24 @@ const Setup = ({ onStart, onStartVoice }) => {
         'Voice interview start error:',
         err
       );
+
+      /*
+       * Backend/network failure:
+       * stop the screen stream because the interview
+       * never actually started.
+       */
+
+      if (screenStream) {
+        screenStream
+          .getTracks()
+          .forEach((track) => {
+            try {
+              track.stop();
+            } catch {}
+          });
+
+        screenStream = null;
+      }
 
       alert(
         'Error connecting to backend: ' +
@@ -486,9 +775,6 @@ const Setup = ({ onStart, onStartVoice }) => {
           width: '100%'
         }}
       >
-
-        {/* MODE TITLE */}
-
         <div
           style={{
             fontSize: '0.62rem',
@@ -501,8 +787,6 @@ const Setup = ({ onStart, onStartVoice }) => {
         >
           Interview Mode
         </div>
-
-        {/* MODE SELECTOR */}
 
         <button
           type="button"
@@ -546,75 +830,56 @@ const Setup = ({ onStart, onStartVoice }) => {
               'border-color 0.3s ease, box-shadow 0.3s ease'
           }}
         >
-
-          {/* MOVING ACTIVE CAPSULE */}
-
           <div
             style={{
               position:
                 'absolute',
               top: '4px',
               bottom: '4px',
-
               left: isGeneral
                 ? '4px'
                 : 'calc(50% + 0px)',
-
               width:
                 'calc(50% - 4px)',
-
               borderRadius:
                 '999px',
-
               background:
                 isGeneral
                   ? 'linear-gradient(135deg, rgba(168,85,247,0.96), rgba(236,72,153,0.88))'
                   : 'linear-gradient(135deg, rgba(56,189,248,0.92), rgba(59,130,246,0.86))',
-
               boxShadow:
                 isGeneral
                   ? '0 4px 18px rgba(168,85,247,0.22)'
                   : '0 4px 18px rgba(56,189,248,0.20)',
-
               transition:
                 'left 0.45s cubic-bezier(0.22,0.61,0.36,1), background 0.35s ease, box-shadow 0.35s ease',
-
               zIndex: 1,
-
               pointerEvents:
                 'none'
             }}
           />
-
-          {/* GENERAL */}
 
           <span
             style={{
               position:
                 'relative',
               zIndex: 2,
-
               display: 'flex',
               alignItems:
                 'center',
               justifyContent:
                 'center',
-
               height: '100%',
-
               fontSize:
                 '0.72rem',
               fontWeight: 800,
               letterSpacing:
                 '0.045em',
-
               color: isGeneral
                 ? '#fff'
                 : 'rgba(255,255,255,0.52)',
-
               transition:
                 'color 0.3s ease',
-
               whiteSpace:
                 'nowrap'
             }}
@@ -622,35 +887,27 @@ const Setup = ({ onStart, onStartVoice }) => {
             GENERAL
           </span>
 
-          {/* AUDIO */}
-
           <span
             style={{
               position:
                 'relative',
               zIndex: 2,
-
               display: 'flex',
               alignItems:
                 'center',
               justifyContent:
                 'center',
-
               height: '100%',
-
               fontSize:
                 '0.72rem',
               fontWeight: 800,
               letterSpacing:
                 '0.045em',
-
               color: !isGeneral
                 ? '#fff'
                 : 'rgba(255,255,255,0.52)',
-
               transition:
                 'color 0.3s ease',
-
               whiteSpace:
                 'nowrap'
             }}
@@ -658,8 +915,6 @@ const Setup = ({ onStart, onStartVoice }) => {
             AUDIO
           </span>
         </button>
-
-        {/* MODE DESCRIPTION */}
 
         <div
           style={{
@@ -724,35 +979,24 @@ const Setup = ({ onStart, onStartVoice }) => {
           '1800px'
       }}
     >
-
-      {/* =====================================================
-          FLIP CARD
-          ===================================================== */}
-
       <div
         style={{
           width: '100%',
           display: 'grid',
           position: 'relative',
-
           transformStyle:
             'preserve-3d',
-
           WebkitTransformStyle:
             'preserve-3d',
-
           transition:
             'transform 0.85s cubic-bezier(0.22, 0.61, 0.36, 1)',
-
           WebkitTransition:
             '-webkit-transform 0.85s cubic-bezier(0.22, 0.61, 0.36, 1)',
-
           transform:
             assessmentMode ===
             'voice'
               ? 'rotateY(180deg)'
               : 'rotateY(0deg)',
-
           WebkitTransform:
             assessmentMode ===
             'voice'
@@ -760,11 +1004,6 @@ const Setup = ({ onStart, onStartVoice }) => {
               : 'rotateY(0deg)'
         }}
       >
-
-        {/* ===================================================
-            TECHNICAL FRONT
-            =================================================== */}
-
         <div
           style={{
             ...faceBaseStyle,
@@ -808,9 +1047,6 @@ const Setup = ({ onStart, onStartVoice }) => {
                 handleTechnicalSubmit
               }
             >
-
-              {/* JOB ROLE + EXPERIENCE */}
-
               <div
                 style={{
                   display: 'flex',
@@ -888,8 +1124,6 @@ const Setup = ({ onStart, onStartVoice }) => {
                   />
                 </div>
               </div>
-
-              {/* SKILLS + TYPE */}
 
               <div
                 style={{
@@ -998,8 +1232,6 @@ const Setup = ({ onStart, onStartVoice }) => {
                   />
                 </div>
               </div>
-
-              {/* LEETCODE + GITHUB */}
 
               <div
                 style={{
@@ -1330,8 +1562,6 @@ const Setup = ({ onStart, onStartVoice }) => {
                 </div>
               </div>
 
-              {/* PERSONA + PRESSURE */}
-
               <div
                 style={{
                   display: 'flex',
@@ -1401,8 +1631,6 @@ const Setup = ({ onStart, onStartVoice }) => {
                 </div>
               </div>
 
-              {/* RESUME */}
-
               <div
                 className="form-group"
                 style={{
@@ -1431,8 +1659,6 @@ const Setup = ({ onStart, onStartVoice }) => {
                 />
               </div>
 
-              {/* START */}
-
               <button
                 type="submit"
                 className="btn btn-primary"
@@ -1451,10 +1677,6 @@ const Setup = ({ onStart, onStartVoice }) => {
             </form>
           </div>
         </div>
-
-        {/* ===================================================
-            VOICE BACK
-            =================================================== */}
 
         <div
           style={{
@@ -1507,9 +1729,6 @@ const Setup = ({ onStart, onStartVoice }) => {
                 handleVoiceSubmit
               }
             >
-
-              {/* ROLE + EXPERIENCE */}
-
               <div
                 style={{
                   display: 'flex',
@@ -1588,8 +1807,6 @@ const Setup = ({ onStart, onStartVoice }) => {
                 </div>
               </div>
 
-              {/* INTERVIEW FOCUS */}
-
               <div
                 className="form-group"
                 style={{
@@ -1621,8 +1838,6 @@ const Setup = ({ onStart, onStartVoice }) => {
                   }
                 />
               </div>
-
-              {/* PERSONA */}
 
               <div
                 className="form-group"
@@ -1657,8 +1872,6 @@ const Setup = ({ onStart, onStartVoice }) => {
                 />
               </div>
 
-              {/* RECORDING MODE */}
-
               <div
                 className="form-group"
                 style={{
@@ -1680,9 +1893,6 @@ const Setup = ({ onStart, onStartVoice }) => {
                       '1rem'
                   }}
                 >
-
-                  {/* AUDIO */}
-
                   <button
                     type="button"
                     onClick={() =>
@@ -1832,8 +2042,6 @@ const Setup = ({ onStart, onStartVoice }) => {
                       </div>
                     )}
                   </button>
-
-                  {/* VIDEO */}
 
                   <button
                     type="button"
@@ -1987,8 +2195,6 @@ const Setup = ({ onStart, onStartVoice }) => {
                 </div>
               </div>
 
-              {/* PRESSURE MODE */}
-
               <div
                 style={{
                   marginTop:
@@ -2012,8 +2218,6 @@ const Setup = ({ onStart, onStartVoice }) => {
                 })}
               </div>
 
-              {/* START VOICE */}
-
               <button
                 type="submit"
                 className="btn btn-primary"
@@ -2026,7 +2230,7 @@ const Setup = ({ onStart, onStartVoice }) => {
                 {loading ? (
                   <div className="spinner" />
                 ) : (
-                  '🎙️ Start Voice Interview'
+                  'Start Voice Interview'
                 )}
               </button>
             </form>

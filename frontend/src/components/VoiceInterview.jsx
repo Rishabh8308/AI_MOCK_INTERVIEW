@@ -4,6 +4,7 @@ const VoiceInterview = ({
   sessionId,
   initialMessage,
   recordingMode = 'audio',
+  screenStream = null,
   onEndInterview
 }) => {
   const API_URL =
@@ -24,12 +25,6 @@ const VoiceInterview = ({
   const [audioLevel, setAudioLevel] =
     useState(0);
 
-  /*
-   * =========================================================
-   * CHEAT WARNING
-   * =========================================================
-   */
-
   const [cheatWarning, setCheatWarning] =
     useState(false);
 
@@ -44,28 +39,8 @@ const VoiceInterview = ({
 
   /*
    * =========================================================
-   * CHEAT / TAB / WINDOW SWITCH DETECTION
+   * CHEAT / TAB / WINDOW / FULLSCREEN DETECTION
    * =========================================================
-   *
-   * Detects:
-   *
-   * 1. Switching Chrome tabs
-   * 2. Switching to another application
-   * 3. Alt + Tab
-   * 4. Clicking another application/window
-   * 5. Minimizing the browser
-   *
-   * FIRST VIOLATION:
-   *   Candidate leaves the interview.
-   *   When they return, warning appears.
-   *
-   * SECOND VIOLATION:
-   *   Candidate leaves again.
-   *   When they return, interview ends.
-   *
-   * IMPORTANT:
-   * blur + visibilitychange from the same
-   * action are treated as ONE violation.
    */
 
   const visibilityViolationCountRef =
@@ -75,6 +50,15 @@ const VoiceInterview = ({
     useRef(false);
 
   const cheatWarningPendingRef =
+    useRef(false);
+
+  /*
+   * This is used only while Setup.jsx is handling the
+   * screen-share picker / fullscreen transition.
+   *
+   * VoiceInterview itself NEVER calls getDisplayMedia().
+   */
+  const screenShareRequestPendingRef =
     useRef(false);
 
   const endingInterviewRef =
@@ -115,7 +99,7 @@ const VoiceInterview = ({
 
   /*
    * =========================================================
-   * MIXED RECORDING AUDIO
+   * RECORDING AUDIO MIXER
    * =========================================================
    */
 
@@ -188,13 +172,16 @@ const VoiceInterview = ({
   const conversationStartedRef =
     useRef(false);
 
+  const aiSpeakingRef =
+    useRef(false);
+
   const SpeechRecognition =
     window.SpeechRecognition ||
     window.webkitSpeechRecognition;
 
   /*
    * =========================================================
-   * HELPERS
+   * STATE HELPERS
    * =========================================================
    */
 
@@ -206,6 +193,54 @@ const VoiceInterview = ({
   const updateAudioLevel = (value) => {
     audioLevelRef.current = value;
     setAudioLevel(value);
+  };
+
+  /*
+   * =========================================================
+   * FULLSCREEN
+   * =========================================================
+   *
+   * Setup.jsx should request fullscreen AFTER the
+   * getDisplayMedia() promise resolves.
+   *
+   * This function is only a safety fallback.
+   */
+
+  const ensureFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) {
+        console.log(
+          '✅ Already in fullscreen.'
+        );
+
+        return true;
+      }
+
+      if (
+        !document.documentElement.requestFullscreen
+      ) {
+        console.warn(
+          '⚠️ Fullscreen API is not supported.'
+        );
+
+        return false;
+      }
+
+      await document.documentElement.requestFullscreen();
+
+      console.log(
+        '✅ Fullscreen enabled.'
+      );
+
+      return true;
+    } catch (err) {
+      console.warn(
+        '⚠️ Could not enter fullscreen automatically:',
+        err
+      );
+
+      return false;
+    }
   };
 
   /*
@@ -233,7 +268,10 @@ const VoiceInterview = ({
     const context =
       playbackContextRef.current;
 
-    if (context.state === 'suspended') {
+    if (
+      context.state ===
+      'suspended'
+    ) {
       await context.resume();
     }
 
@@ -242,7 +280,7 @@ const VoiceInterview = ({
 
   /*
    * =========================================================
-   * BASE64 → BYTES
+   * BASE64 -> BYTES
    * =========================================================
    */
 
@@ -269,7 +307,7 @@ const VoiceInterview = ({
 
   /*
    * =========================================================
-   * PLAY PCM AUDIO
+   * PLAY PCM CHUNK
    * =========================================================
    */
 
@@ -340,6 +378,9 @@ const VoiceInterview = ({
       context.destination
     );
 
+    /*
+     * Add AI voice to the recording mixer.
+     */
     if (
       recordingDestinationRef.current
     ) {
@@ -347,13 +388,9 @@ const VoiceInterview = ({
         gainNode.connect(
           recordingDestinationRef.current
         );
-
-        console.log(
-          '🎧 AI voice connected to recording mixer'
-        );
       } catch (err) {
         console.error(
-          '❌ Failed to connect AI voice to recording mixer:',
+          'Failed to connect AI voice to recording mixer:',
           err
         );
       }
@@ -383,7 +420,8 @@ const VoiceInterview = ({
     source.onended = () => {
       playbackSourcesRef.current =
         playbackSourcesRef.current.filter(
-          (item) => item !== source
+          (item) =>
+            item !== source
         );
 
       if (
@@ -415,6 +453,9 @@ const VoiceInterview = ({
     if (!mountedRef.current) {
       return;
     }
+
+    aiSpeakingRef.current =
+      false;
 
     setAiSpeaking(false);
 
@@ -448,19 +489,25 @@ const VoiceInterview = ({
     streamFinishedRef.current =
       false;
 
-    if (playbackContextRef.current) {
+    if (
+      playbackContextRef.current
+    ) {
       playbackNextTimeRef.current =
         playbackContextRef.current.currentTime;
     } else {
-      playbackNextTimeRef.current = 0;
+      playbackNextTimeRef.current =
+        0;
     }
+
+    aiSpeakingRef.current =
+      false;
 
     setAiSpeaking(false);
   };
 
   /*
    * =========================================================
-   * AI TEXT TO SPEECH
+   * AI TTS
    * =========================================================
    */
 
@@ -470,6 +517,9 @@ const VoiceInterview = ({
     }
 
     stopAIPlayback();
+
+    aiSpeakingRef.current =
+      true;
 
     setAiSpeaking(true);
 
@@ -484,7 +534,10 @@ const VoiceInterview = ({
       const context =
         await getAudioContext();
 
-      if (context.state === 'suspended') {
+      if (
+        context.state ===
+        'suspended'
+      ) {
         await context.resume();
       }
 
@@ -666,6 +719,9 @@ const VoiceInterview = ({
         return;
       }
 
+      aiSpeakingRef.current =
+        false;
+
       setAiSpeaking(false);
 
       updateStatus('error');
@@ -685,7 +741,7 @@ const VoiceInterview = ({
 
   const startRecording = async () => {
     console.log(
-      '🎙️ START RECORDING CALLED'
+      'START RECORDING CALLED'
     );
 
     const existingSession =
@@ -697,17 +753,16 @@ const VoiceInterview = ({
         'inactive'
     ) {
       console.log(
-        '⚠️ Recording already active.'
+        'Recording already active.'
       );
 
       return;
     }
 
     let stream = null;
-
     let cameraStream = null;
-
-    let screenStream = null;
+    let selectedScreenStream =
+      null;
 
     try {
       if (
@@ -729,60 +784,69 @@ const VoiceInterview = ({
       }
 
       /*
-       * =========================================================
-       * GET RECORDING MEDIA
-       * =========================================================
+       * =======================================================
+       * VIDEO MODE
+       * =======================================================
        *
-       * AUDIO MODE:
-       *   Microphone only
+       * IMPORTANT:
        *
-       * VIDEO MODE:
-       *   Screen → recorded video
-       *   Camera → UI preview
-       *   Microphone → mixed audio
+       * DO NOT call getDisplayMedia() here.
+       *
+       * Setup.jsx already obtained the screen stream.
        */
 
-      if (recordingMode === 'video') {
-        console.log(
-          '🖥️ Requesting screen capture...'
-        );
+      if (
+        recordingMode ===
+        'video'
+      ) {
+        if (!screenStream) {
+          throw new Error(
+            'Screen-sharing stream was not provided. Please restart the interview and allow screen sharing.'
+          );
+        }
 
-        screenStream =
-          await navigator.mediaDevices.getDisplayMedia({
-            video: {
-              cursor: 'always'
-            },
-            audio: false
-          });
+        selectedScreenStream =
+          screenStream;
 
         const screenVideoTrack =
-          screenStream.getVideoTracks()[0];
+          selectedScreenStream.getVideoTracks()[0];
 
-        if (screenVideoTrack) {
-          screenVideoTrack.onended = () => {
-            console.log(
-              '🖥️ User stopped screen sharing'
-            );
-
-            if (
-              mountedRef.current &&
-              statusRef.current !==
-                'uploading'
-            ) {
-              setError(
-                'Screen sharing was stopped. Please end the interview.'
-              );
-            }
-          };
+        if (
+          !screenVideoTrack ||
+          screenVideoTrack.readyState !==
+            'live'
+        ) {
+          throw new Error(
+            'The screen-sharing stream is no longer active. Please restart the interview and allow screen sharing again.'
+          );
         }
 
         console.log(
-          '✅ Screen stream obtained:',
-          screenStream
+          'Reusing screen stream from Setup.jsx.'
         );
 
         /*
-         * Camera is ONLY for the live UI preview.
+         * If the user manually stops sharing during
+         * the interview, the stream track ends.
+         */
+        screenVideoTrack.onended = () => {
+          console.log(
+            'Screen sharing stopped by user.'
+          );
+
+          if (
+            mountedRef.current &&
+            statusRef.current !==
+              'uploading'
+          ) {
+            setError(
+              'Screen sharing was stopped. Please end the interview.'
+            );
+          }
+        };
+
+        /*
+         * Camera + microphone.
          */
         cameraStream =
           await navigator.mediaDevices.getUserMedia({
@@ -799,8 +863,7 @@ const VoiceInterview = ({
           });
 
         console.log(
-          '✅ Camera stream obtained for preview:',
-          cameraStream
+          'Camera stream obtained.'
         );
 
         if (videoRef.current) {
@@ -812,24 +875,20 @@ const VoiceInterview = ({
           } catch {}
         }
 
-        /*
-         * Camera stream contains the microphone.
-         */
-        stream = cameraStream;
+        stream =
+          cameraStream;
       } else {
         /*
-         * AUDIO MODE
+         * =======================================================
+         * AUDIO ONLY
+         * =======================================================
          */
+
         stream =
           await navigator.mediaDevices.getUserMedia({
             audio: true
           });
       }
-
-      console.log(
-        '🎙️ Recording source stream:',
-        stream
-      );
 
       if (!stream) {
         throw new Error(
@@ -841,19 +900,10 @@ const VoiceInterview = ({
         stream.getAudioTracks();
 
       const videoTracks =
-        recordingMode === 'video'
-          ? screenStream.getVideoTracks()
+        recordingMode ===
+        'video'
+          ? selectedScreenStream.getVideoTracks()
           : [];
-
-      console.log(
-        '🎙️ Media tracks:',
-        {
-          audioTracks:
-            audioTracks.length,
-          videoTracks:
-            videoTracks.length
-        }
-      );
 
       if (
         audioTracks.length === 0
@@ -864,7 +914,8 @@ const VoiceInterview = ({
       }
 
       if (
-        recordingMode === 'video' &&
+        recordingMode ===
+          'video' &&
         videoTracks.length === 0
       ) {
         throw new Error(
@@ -873,9 +924,9 @@ const VoiceInterview = ({
       }
 
       /*
-       * =========================================================
-       * CREATE MIXER USING THE SAME AUDIO CONTEXT AS AI TTS
-       * =========================================================
+       * =======================================================
+       * AUDIO MIXER
+       * =======================================================
        */
 
       const playbackContext =
@@ -902,12 +953,15 @@ const VoiceInterview = ({
       microphoneSourceRef.current =
         microphoneSource;
 
-      console.log(
-        '🎚️ Recording audio mixer created'
-      );
+      /*
+       * =======================================================
+       * MEDIA RECORDER FORMAT
+       * =======================================================
+       */
 
       const mimeTypes =
-        recordingMode === 'video'
+        recordingMode ===
+        'video'
           ? [
               'video/webm;codecs=vp9,opus',
               'video/webm;codecs=vp8,opus',
@@ -938,23 +992,17 @@ const VoiceInterview = ({
         } catch {}
       }
 
-      console.log(
-        '🎙️ Selected MIME:',
-        selectedMimeType ||
-          'browser default'
-      );
-
       /*
-       * =========================================================
-       * BUILD RECORDING STREAM
-       * =========================================================
+       * =======================================================
+       * FINAL RECORDING STREAM
+       * =======================================================
        */
 
       const recordingStream =
         new MediaStream();
 
       /*
-       * Add SCREEN video tracks.
+       * Screen video.
        */
       videoTracks.forEach(
         (track) => {
@@ -965,13 +1013,8 @@ const VoiceInterview = ({
       );
 
       /*
-       * Add mixed audio track.
-       *
-       * Contains:
-       * - microphone
-       * - AI TTS
+       * Mixed audio.
        */
-
       const mixedAudioTrack =
         recordingDestination
           .stream
@@ -987,19 +1030,11 @@ const VoiceInterview = ({
         mixedAudioTrack
       );
 
-      console.log(
-        '🎚️ Recording stream created:',
-        {
-          audioTracks:
-            recordingStream
-              .getAudioTracks()
-              .length,
-          videoTracks:
-            recordingStream
-              .getVideoTracks()
-              .length
-        }
-      );
+      /*
+       * =======================================================
+       * CREATE RECORDER
+       * =======================================================
+       */
 
       const recorder =
         selectedMimeType
@@ -1014,16 +1049,6 @@ const VoiceInterview = ({
               recordingStream
             );
 
-      console.log(
-        '✅ RECORDING CREATED:',
-        {
-          state:
-            recorder.state,
-          mimeType:
-            recorder.mimeType
-        }
-      );
-
       const session = {
         recorder,
 
@@ -1033,7 +1058,8 @@ const VoiceInterview = ({
         sourceStream:
           stream,
 
-        screenStream,
+        screenStream:
+          selectedScreenStream,
 
         cameraStream,
 
@@ -1043,7 +1069,8 @@ const VoiceInterview = ({
           recorder.mimeType ||
           selectedMimeType ||
           (
-            recordingMode === 'video'
+            recordingMode ===
+            'video'
               ? 'video/webm'
               : 'audio/webm'
           ),
@@ -1060,6 +1087,12 @@ const VoiceInterview = ({
       recordingSessionRef.current =
         session;
 
+      /*
+       * =======================================================
+       * RECORDER EVENTS
+       * =======================================================
+       */
+
       recorder.ondataavailable =
         (event) => {
           if (
@@ -1071,7 +1104,7 @@ const VoiceInterview = ({
             );
 
             console.log(
-              '🎙️ Recording chunk:',
+              'Recording chunk:',
               event.data.size
             );
           }
@@ -1080,7 +1113,7 @@ const VoiceInterview = ({
       recorder.onerror =
         (event) => {
           console.error(
-            '❌ MediaRecorder error:',
+            'MediaRecorder error:',
             event
           );
 
@@ -1091,8 +1124,11 @@ const VoiceInterview = ({
               )
             );
 
-            session.resolve = null;
-            session.reject = null;
+            session.resolve =
+              null;
+
+            session.reject =
+              null;
           }
 
           if (mountedRef.current) {
@@ -1103,10 +1139,6 @@ const VoiceInterview = ({
         };
 
       recorder.onstop = () => {
-        console.log(
-          '🛑 MediaRecorder ONSTOP fired.'
-        );
-
         session.stopped =
           true;
 
@@ -1120,7 +1152,7 @@ const VoiceInterview = ({
           );
 
         console.log(
-          '✅ RECORDING BLOB CREATED:',
+          'Recording blob created:',
           {
             size:
               blob.size,
@@ -1144,10 +1176,16 @@ const VoiceInterview = ({
         }
       };
 
+      /*
+       * =======================================================
+       * START MEDIA RECORDER
+       * =======================================================
+       */
+
       recorder.start(1000);
 
       console.log(
-        '✅ RECORDING STARTED:',
+        'Recording started:',
         {
           state:
             recorder.state,
@@ -1157,36 +1195,12 @@ const VoiceInterview = ({
       );
     } catch (err) {
       console.error(
-        '❌ Recording start error:',
+        'Recording start error:',
         err
       );
 
-      if (screenStream) {
-        screenStream
-          .getTracks()
-          .forEach(
-            (track) => {
-              try {
-                track.stop();
-              } catch {}
-            }
-          );
-      }
-
       if (cameraStream) {
         cameraStream
-          .getTracks()
-          .forEach(
-            (track) => {
-              try {
-                track.stop();
-              } catch {}
-            }
-          );
-      }
-
-      if (stream) {
-        stream
           .getTracks()
           .forEach(
             (track) => {
@@ -1223,28 +1237,14 @@ const VoiceInterview = ({
       }
 
       if (
-        err.name ===
-        'NotAllowedError'
+        mountedRef.current
       ) {
-        setError(
-          recordingMode === 'video'
-            ? 'Camera, microphone, or screen-sharing permission was denied.'
-            : 'Microphone permission was denied.'
-        );
-      } else if (
-        err.name ===
-        'NotFoundError'
-      ) {
-        setError(
-          recordingMode === 'video'
-            ? 'Camera or microphone was not found.'
-            : 'Microphone was not found.'
-        );
-      } else {
         setError(
           err.message ||
             'Unable to start recording.'
         );
+
+        updateStatus('error');
       }
     }
   };
@@ -1259,24 +1259,9 @@ const VoiceInterview = ({
     const session =
       recordingSessionRef.current;
 
-    console.log(
-      '🛑 STOP RECORDING:',
-      {
-        sessionExists:
-          !!session,
-        recorder:
-          session?.recorder,
-        recorderState:
-          session?.recorder?.state,
-        chunks:
-          session?.chunks?.length ||
-          0
-      }
-    );
-
     if (!session) {
       console.warn(
-        '⚠️ No recording session exists.'
+        'No recording session exists.'
       );
 
       return null;
@@ -1286,10 +1271,6 @@ const VoiceInterview = ({
       session.recorder;
 
     if (!recorder) {
-      console.warn(
-        '⚠️ Recording session has no recorder.'
-      );
-
       return null;
     }
 
@@ -1375,24 +1356,22 @@ const VoiceInterview = ({
       return;
     }
 
-    console.log(
-      '🧹 Cleaning up recording streams...'
-    );
-
-    if (session.screenStream) {
-      session.screenStream
+    /*
+     * Final recording stream.
+     */
+    if (session.stream) {
+      session.stream
         .getTracks()
         .forEach((track) => {
           try {
             track.stop();
           } catch {}
         });
-
-      console.log(
-        '🖥️ Screen capture stopped'
-      );
     }
 
+    /*
+     * Camera.
+     */
     if (session.cameraStream) {
       session.cameraStream
         .getTracks()
@@ -1401,12 +1380,11 @@ const VoiceInterview = ({
             track.stop();
           } catch {}
         });
-
-      console.log(
-        '🎥 Camera preview stopped'
-      );
     }
 
+    /*
+     * Original microphone.
+     */
     if (session.sourceStream) {
       session.sourceStream
         .getTracks()
@@ -1417,8 +1395,12 @@ const VoiceInterview = ({
         });
     }
 
-    if (session.stream) {
-      session.stream
+    /*
+     * Screen stream belongs to this interview
+     * after recording begins.
+     */
+    if (session.screenStream) {
+      session.screenStream
         .getTracks()
         .forEach((track) => {
           try {
@@ -1456,10 +1438,6 @@ const VoiceInterview = ({
       recordingSessionRef.current =
         null;
     }
-
-    console.log(
-      '✅ Recording cleanup complete'
-    );
   };
 
   /*
@@ -1508,7 +1486,7 @@ const VoiceInterview = ({
       );
 
       console.log(
-        '☁️ Uploading recording:',
+        'Uploading recording:',
         {
           sessionId,
           size:
@@ -1546,11 +1524,6 @@ const VoiceInterview = ({
         );
       }
 
-      console.log(
-        '✅ Recording uploaded:',
-        data
-      );
-
       recordingUploadRef.current =
         data;
 
@@ -1576,6 +1549,7 @@ const VoiceInterview = ({
           recordingSessionRef.current;
 
         let stream =
+          recordingSession?.sourceStream ||
           recordingSession?.stream;
 
         if (!stream) {
@@ -1748,7 +1722,7 @@ const VoiceInterview = ({
       return;
     }
 
-    if (aiSpeaking) {
+    if (aiSpeakingRef.current) {
       return;
     }
 
@@ -1804,7 +1778,7 @@ const VoiceInterview = ({
 
   /*
    * =========================================================
-   * SEND USER RESPONSE TO AI
+   * SEND CANDIDATE RESPONSE
    * =========================================================
    */
 
@@ -1835,10 +1809,12 @@ const VoiceInterview = ({
             `${API_URL}/api/chat`,
             {
               method: 'POST',
+
               headers: {
                 'Content-Type':
                   'application/json'
               },
+
               body: JSON.stringify({
                 sessionId,
                 message: cleaned
@@ -1896,7 +1872,7 @@ const VoiceInterview = ({
 
   /*
    * =========================================================
-   * SPEECH RECOGNITION SETUP
+   * SPEECH RECOGNITION
    * =========================================================
    */
 
@@ -2020,6 +1996,13 @@ const VoiceInterview = ({
           return;
         }
 
+        if (
+          event.error ===
+          'aborted'
+        ) {
+          return;
+        }
+
         updateStatus('error');
 
         setError(
@@ -2049,289 +2032,255 @@ const VoiceInterview = ({
 
   /*
    * =========================================================
-   * CHEAT / TAB / WINDOW SWITCH DETECTION
+   * CHEAT DETECTION
    * =========================================================
-   *
-   * Detects:
-   *
-   * 1. Switching Chrome tabs
-   * 2. Switching to another application
-   * 3. Alt + Tab
-   * 4. Clicking another application/window
-   * 5. Minimizing the browser
-   *
-   * FIRST VIOLATION:
-   *   Candidate leaves the interview.
-   *   When they return, warning appears.
-   *
-   * SECOND VIOLATION:
-   *   Candidate leaves again.
-   *   When they return, interview ends.
-   *
-   * IMPORTANT:
-   * blur + visibilitychange from the same
-   * action are treated as ONE violation.
    */
 
   useEffect(() => {
-    /*
-     * =======================================================
-     * MARK INTERVIEW AS AWAY
-     * =======================================================
-     */
-
-    const markPageAsAway = (source) => {
-      /*
-       * Ignore if the interview is already
-       * intentionally ending.
-       */
-      if (
-        endingInterviewRef.current
-      ) {
-        return;
-      }
-
-      /*
-       * Do not monitor before the interview
-       * has actually started.
-       */
-      if (
-        !conversationStartedRef.current
-      ) {
-        return;
-      }
-
-      /*
-       * Do not monitor while the recording
-       * is already being uploaded.
-       */
-      if (
-        statusRef.current ===
-        'uploading'
-      ) {
-        return;
-      }
-
-      /*
-       * blur + visibilitychange can both fire
-       * for one app/tab switch.
-       *
-       * Only mark the first event as the
-       * departure.
-       */
-      if (
-        wasPageHiddenRef.current
-      ) {
-        return;
-      }
-
-      wasPageHiddenRef.current =
-        true;
-
-      console.log(
-        `⚠️ Interview lost focus (${source}).`
-      );
-    };
-
-    /*
-     * =======================================================
-     * PROCESS RETURN TO INTERVIEW
-     * =======================================================
-     */
-
-    const processReturnToInterview = () => {
-      if (
-        endingInterviewRef.current
-      ) {
-        return;
-      }
-
-      if (
-        !conversationStartedRef.current
-      ) {
-        return;
-      }
-
-      if (
-        statusRef.current ===
-        'uploading'
-      ) {
-        return;
-      }
-
-      /*
-       * Candidate never actually left.
-       */
-      if (
-        !wasPageHiddenRef.current
-      ) {
-        return;
-      }
-
-      /*
-       * If the document is still hidden,
-       * this is not a real return yet.
-       */
-      if (
-        document.hidden
-      ) {
-        return;
-      }
-
-      /*
-       * Candidate has returned.
-       */
-      wasPageHiddenRef.current =
-        false;
-
-      visibilityViolationCountRef.current +=
-        1;
-
-      const violationCount =
-        visibilityViolationCountRef.current;
-
-      console.log(
-        '⚠️ Interview tab/window violation:',
-        violationCount
-      );
-
-      /*
-       * =====================================================
-       * FIRST VIOLATION
-       * =====================================================
-       */
-
-      if (
-        violationCount === 1
-      ) {
-        console.log(
-          '⚠️ First violation. Showing warning.'
-        );
-
-        cheatWarningPendingRef.current =
-          true;
-
-        if (mountedRef.current) {
-          setCheatWarning(true);
+    const markPageAsAway =
+      (source) => {
+        if (
+          endingInterviewRef.current
+        ) {
+          return;
         }
 
-        return;
-      }
+        /*
+         * Never count setup permission/focus activity.
+         */
+        if (
+          screenShareRequestPendingRef.current
+        ) {
+          console.log(
+            `Ignoring focus loss during setup: ${source}`
+          );
 
-      /*
-       * =====================================================
-       * SECOND VIOLATION
-       * =====================================================
-       */
+          return;
+        }
 
-      if (
-        violationCount >= 2
-      ) {
+        /*
+         * Interview has not actually started yet.
+         */
+        if (
+          !conversationStartedRef.current
+        ) {
+          return;
+        }
+
+        if (
+          statusRef.current ===
+          'uploading'
+        ) {
+          return;
+        }
+
+        if (
+          wasPageHiddenRef.current
+        ) {
+          return;
+        }
+
+        wasPageHiddenRef.current =
+          true;
+
         console.log(
-          '🛑 Second tab/window violation. Ending interview.'
+          `Interview lost focus: ${source}`
         );
+      };
 
-        cheatWarningPendingRef.current =
+    const processReturnToInterview =
+      () => {
+        if (
+          endingInterviewRef.current
+        ) {
+          return;
+        }
+
+        if (
+          !conversationStartedRef.current
+        ) {
+          return;
+        }
+
+        if (
+          statusRef.current ===
+          'uploading'
+        ) {
+          return;
+        }
+
+        if (
+          !wasPageHiddenRef.current
+        ) {
+          return;
+        }
+
+        if (
+          document.hidden
+        ) {
+          return;
+        }
+
+        wasPageHiddenRef.current =
           false;
 
-        if (mountedRef.current) {
-          setCheatWarning(false);
+        visibilityViolationCountRef.current +=
+          1;
+
+        const violationCount =
+          visibilityViolationCountRef.current;
+
+        console.log(
+          'Interview violation:',
+          violationCount
+        );
+
+        /*
+         * First violation = warning.
+         */
+        if (
+          violationCount === 1
+        ) {
+          cheatWarningPendingRef.current =
+            true;
+
+          if (
+            mountedRef.current
+          ) {
+            setCheatWarning(
+              true
+            );
+          }
+
+          return;
+        }
+
+        /*
+         * Second violation = end interview.
+         */
+        if (
+          violationCount >= 2
+        ) {
+          cheatWarningPendingRef.current =
+            false;
+
+          if (
+            mountedRef.current
+          ) {
+            setCheatWarning(
+              false
+            );
+          }
+
+          if (
+            handleEndInterviewRef.current
+          ) {
+            handleEndInterviewRef.current();
+          }
+        }
+      };
+
+    const handleFullscreenChange =
+      () => {
+        /*
+         * Ignore fullscreen events while setup is
+         * still handling the share picker.
+         */
+        if (
+          screenShareRequestPendingRef.current
+        ) {
+          return;
+        }
+
+        if (
+          endingInterviewRef.current
+        ) {
+          return;
         }
 
         /*
          * IMPORTANT:
          *
-         * Do NOT set
-         * endingInterviewRef.current
-         * here.
-         *
-         * handleEndInterview() itself
-         * sets that flag.
+         * Fullscreen before the interview starts is NOT
+         * a violation.
          */
         if (
-          handleEndInterviewRef.current
+          !conversationStartedRef.current
         ) {
-          handleEndInterviewRef.current();
+          return;
         }
-      }
-    };
 
-    /*
-     * =======================================================
-     * DOCUMENT VISIBILITY CHANGE
-     * =======================================================
-     *
-     * Handles:
-     *
-     * - Chrome tab switching
-     * - Browser becoming hidden
-     * - Browser minimized in many cases
-     */
+        /*
+         * Only fullscreen EXIT counts.
+         */
+        if (
+          !document.fullscreenElement
+        ) {
+          console.log(
+            'Candidate exited fullscreen.'
+          );
 
-    const handleVisibilityChange = () => {
-      if (
-        document.hidden
-      ) {
+          markPageAsAway(
+            'fullscreen exit'
+          );
+
+          setTimeout(() => {
+            processReturnToInterview();
+          }, 150);
+        }
+      };
+
+    const handleVisibilityChange =
+      () => {
+        if (
+          screenShareRequestPendingRef.current
+        ) {
+          return;
+        }
+
+        if (
+          document.hidden
+        ) {
+          markPageAsAway(
+            'visibilitychange'
+          );
+
+          return;
+        }
+
+        setTimeout(() => {
+          processReturnToInterview();
+        }, 150);
+      };
+
+    const handleWindowBlur =
+      () => {
+        if (
+          screenShareRequestPendingRef.current
+        ) {
+          return;
+        }
+
         markPageAsAway(
-          'visibilitychange'
+          'window blur'
         );
+      };
 
-        return;
-      }
-
-      /*
-       * Give the browser a moment to finish
-       * updating focus/visibility state.
-       */
-      setTimeout(() => {
-        processReturnToInterview();
-      }, 100);
-    };
-
-    /*
-     * =======================================================
-     * WINDOW BLUR
-     * =======================================================
-     *
-     * Handles:
-     *
-     * - Alt + Tab
-     * - Clicking another application
-     * - Switching to VS Code
-     * - Switching to ChatGPT
-     * - Clicking another browser window
-     */
-
-    const handleWindowBlur = () => {
-      markPageAsAway(
-        'window blur'
-      );
-    };
-
-    /*
-     * =======================================================
-     * WINDOW FOCUS
-     * =======================================================
-     *
-     * Candidate has returned to the
-     * interview browser window.
-     */
-
-    const handleWindowFocus = () => {
-      setTimeout(() => {
-        processReturnToInterview();
-      }, 100);
-    };
-
-    /*
-     * =======================================================
-     * ADD EVENT LISTENERS
-     * =======================================================
-     */
+    const handleWindowFocus =
+      () => {
+        setTimeout(() => {
+          processReturnToInterview();
+        }, 150);
+      };
 
     document.addEventListener(
       'visibilitychange',
       handleVisibilityChange
+    );
+
+    document.addEventListener(
+      'fullscreenchange',
+      handleFullscreenChange
     );
 
     window.addEventListener(
@@ -2344,16 +2293,15 @@ const VoiceInterview = ({
       handleWindowFocus
     );
 
-    /*
-     * =======================================================
-     * CLEANUP
-     * =======================================================
-     */
-
     return () => {
       document.removeEventListener(
         'visibilitychange',
         handleVisibilityChange
+      );
+
+      document.removeEventListener(
+        'fullscreenchange',
+        handleFullscreenChange
       );
 
       window.removeEventListener(
@@ -2379,6 +2327,16 @@ const VoiceInterview = ({
       return;
     }
 
+    /*
+     * Prevent this effect from starting the interview
+     * more than once.
+     */
+    if (
+      conversationStartedRef.current
+    ) {
+      return;
+    }
+
     const timer =
       setTimeout(
         async () => {
@@ -2388,17 +2346,101 @@ const VoiceInterview = ({
             return;
           }
 
+          /*
+           * VIDEO MODE REQUIRES THE STREAM FROM SETUP.
+           *
+           * No getDisplayMedia() is performed here.
+           */
+          if (
+            recordingMode ===
+              'video' &&
+            !screenStream
+          ) {
+            console.error(
+              'Screen stream missing.'
+            );
+
+            setError(
+              'Screen sharing was not provided. Please restart the interview and allow screen sharing.'
+            );
+
+            updateStatus('error');
+
+            return;
+          }
+
+          if (
+            recordingMode ===
+              'video'
+          ) {
+            const track =
+              screenStream?.getVideoTracks?.()[0];
+
+            if (
+              !track ||
+              track.readyState !==
+                'live'
+            ) {
+              console.error(
+                'Screen stream is not live.'
+              );
+
+              setError(
+                'Screen sharing is no longer active. Please restart the interview.'
+              );
+
+              updateStatus('error');
+
+              return;
+            }
+          }
+
+          /*
+           * =====================================================
+           * ENSURE FULLSCREEN
+           * =====================================================
+           *
+           * Setup.jsx should normally already have placed
+           * the page into fullscreen AFTER screen sharing
+           * was granted.
+           *
+           * We do not count this transition as a violation.
+           */
+
+          if (
+            !document.fullscreenElement
+          ) {
+            console.log(
+              'Fullscreen is not active. Attempting to enable it.'
+            );
+
+            await ensureFullscreen();
+          }
+
+          /*
+           * Mark the interview as started ONLY AFTER
+           * screen sharing has been validated.
+           *
+           * This is extremely important because otherwise
+           * the permission dialog / picker can be detected
+           * as a cheat violation.
+           */
           conversationStartedRef.current =
             true;
 
-          console.log(
-            '🚨 INTERVIEW START TIMER FIRED'
-          );
+          wasPageHiddenRef.current =
+            false;
+
+          visibilityViolationCountRef.current =
+            0;
 
           console.log(
-            '🚨 ABOUT TO START RECORDING'
+            'INTERVIEW STARTED'
           );
 
+          /*
+           * Add first AI message.
+           */
           transcriptRef.current.push({
             sender: 'ai',
             text: initialMessage,
@@ -2406,11 +2448,20 @@ const VoiceInterview = ({
               new Date().toISOString()
           });
 
+          /*
+           * Start recording.
+           */
           await startRecording();
 
-          console.log(
-            '🚨 START RECORDING FINISHED'
-          );
+          /*
+           * If recording failed, do not start AI.
+           */
+          if (
+            statusRef.current ===
+            'error'
+          ) {
+            return;
+          }
 
           await new Promise(
             (resolve) =>
@@ -2420,11 +2471,12 @@ const VoiceInterview = ({
               )
           );
 
-          console.log(
-            '🚨 ABOUT TO SPEAK AI'
+          /*
+           * AI speaks first question.
+           */
+          speakAI(
+            initialMessage
           );
-
-          speakAI(initialMessage);
         },
         500
       );
@@ -2432,7 +2484,9 @@ const VoiceInterview = ({
     return () => {
       clearTimeout(timer);
     };
-  }, [initialMessage]);
+  }, [
+    initialMessage
+  ]);
 
   /*
    * =========================================================
@@ -2783,10 +2837,6 @@ const VoiceInterview = ({
         return;
       }
 
-      /*
-       * Tell cheat detection that the
-       * interview is intentionally ending.
-       */
       endingInterviewRef.current =
         true;
 
@@ -2799,7 +2849,7 @@ const VoiceInterview = ({
 
       try {
         console.log(
-          '🛑 Ending voice interview...'
+          'Ending voice interview...'
         );
 
         stopListening();
@@ -2819,14 +2869,13 @@ const VoiceInterview = ({
         setError('');
 
         /*
-         * Stop recording first.
+         * Stop and obtain the final recording.
          */
-
         const recordingBlob =
           await stopRecording();
 
         console.log(
-          '📦 FINAL RECORDING BLOB:',
+          'Final recording blob:',
           recordingBlob
             ? {
                 size:
@@ -2840,10 +2889,6 @@ const VoiceInterview = ({
         let uploadResult =
           null;
 
-        /*
-         * Upload recording to Supabase Storage.
-         */
-
         if (
           recordingBlob &&
           recordingBlob.size > 0
@@ -2852,33 +2897,28 @@ const VoiceInterview = ({
             await uploadRecordingToSupabase(
               recordingBlob
             );
-        } else {
-          console.warn(
-            '⚠️ Recording blob was empty or missing.'
-          );
         }
 
-        /*
-         * Stop visualizer after
-         * recording is finished.
-         */
-
         stopAudioVisualizer();
-
-        console.log(
-          '✅ Interview recording upload complete:',
-          uploadResult
-        );
 
         const recordingPath =
           uploadResult?.filename ||
           uploadResult?.url ||
           null;
 
-        console.log(
-          '📁 Recording path:',
-          recordingPath
-        );
+        /*
+         * Leave fullscreen when the interview ends.
+         *
+         * This is NOT a violation because the interview
+         * has already ended.
+         */
+        if (
+          document.fullscreenElement
+        ) {
+          try {
+            await document.exitFullscreen();
+          } catch {}
+        }
 
         if (onEndInterview) {
           await onEndInterview(
@@ -2888,7 +2928,7 @@ const VoiceInterview = ({
         }
       } catch (err) {
         console.error(
-          '❌ Failed to finish voice interview:',
+          'Failed to finish voice interview:',
           err
         );
 
@@ -2906,9 +2946,11 @@ const VoiceInterview = ({
     };
 
   /*
-   * Keep the latest handleEndInterview function
-   * available to the visibility-change detector.
+   * =========================================================
+   * LATEST END HANDLER
+   * =========================================================
    */
+
   handleEndInterviewRef.current =
     handleEndInterview;
 
@@ -2921,7 +2963,7 @@ const VoiceInterview = ({
   const handleVisualizerClick =
     () => {
       if (
-        aiSpeaking ||
+        aiSpeakingRef.current ||
         status ===
           'thinking' ||
         status ===
@@ -3026,7 +3068,8 @@ const VoiceInterview = ({
             <div
               style={{
                 fontSize: '2rem',
-                marginBottom: '0.75rem'
+                marginBottom:
+                  '0.75rem'
               }}
             >
               ⚠️
@@ -3034,9 +3077,11 @@ const VoiceInterview = ({
 
             <h2
               style={{
-                color: '#f8fafc',
+                color:
+                  '#f8fafc',
                 margin: 0,
-                marginBottom: '0.75rem'
+                marginBottom:
+                  '0.75rem'
               }}
             >
               Final Warning
@@ -3044,25 +3089,33 @@ const VoiceInterview = ({
 
             <p
               style={{
-                color: '#cbd5e1',
+                color:
+                  '#cbd5e1',
                 lineHeight: 1.6,
-                marginBottom: '1.5rem'
+                marginBottom:
+                  '1.5rem'
               }}
             >
-              You left the interview window.
-              Please remain on the interview
-              screen for the rest of the interview.
+              You left the interview
+              window. Please remain on
+              the interview screen for
+              the rest of the interview.
             </p>
 
             <p
               style={{
-                color: '#fca5a5',
-                fontSize: '0.85rem',
-                marginBottom: '1.5rem'
+                color:
+                  '#fca5a5',
+                fontSize:
+                  '0.85rem',
+                marginBottom:
+                  '1.5rem'
               }}
             >
-              Leaving the interview window again
-              will automatically end the interview.
+              Leaving the interview
+              window again will
+              automatically end the
+              interview.
             </p>
 
             <button
@@ -3071,7 +3124,9 @@ const VoiceInterview = ({
                 cheatWarningPendingRef.current =
                   false;
 
-                setCheatWarning(false);
+                setCheatWarning(
+                  false
+                );
               }}
               style={{
                 padding:
@@ -3117,7 +3172,8 @@ const VoiceInterview = ({
             boxShadow:
               '0 30px 100px rgba(0,0,0,0.45)',
             display: 'flex',
-            flexDirection: 'column'
+            flexDirection:
+              'column'
           }}
         >
           <div
@@ -3127,7 +3183,8 @@ const VoiceInterview = ({
               display: 'flex',
               justifyContent:
                 'space-between',
-              alignItems: 'center',
+              alignItems:
+                'center',
               position:
                 'relative',
               zIndex: 5
@@ -3280,9 +3337,7 @@ const VoiceInterview = ({
                     color: '#fff',
                     fontSize:
                       '0.65rem',
-                    fontWeight: 700,
-                    backdropFilter:
-                      'blur(8px)'
+                    fontWeight: 700
                   }}
                 >
                   You
@@ -3519,9 +3574,7 @@ const VoiceInterview = ({
                   status ===
                   'uploading'
                     ? 0.6
-                    : 1,
-                boxShadow:
-                  '0 0 25px rgba(236,72,153,0.08)'
+                    : 1
               }}
             >
               {status ===

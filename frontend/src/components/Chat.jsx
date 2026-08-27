@@ -49,7 +49,7 @@ const Chat = ({
 
   /*
    * =========================================================
-   * CHEAT / TAB / WINDOW SWITCH WARNING
+   * CHEAT / TAB / WINDOW / FULLSCREEN WARNING
    * =========================================================
    */
 
@@ -67,6 +67,18 @@ const Chat = ({
    * from being counted as two violations.
    */
   const wasPageHiddenRef =
+    useRef(false);
+
+  /*
+   * Used while requesting fullscreen.
+   *
+   * The fullscreen request happens before
+   * the interview actually starts, but this
+   * flag provides an additional protection
+   * against counting the browser's fullscreen
+   * UI as cheating.
+   */
+  const fullscreenRequestPendingRef =
     useRef(false);
 
   const endingInterviewRef =
@@ -112,6 +124,33 @@ const Chat = ({
 
   const [stream, setStream] =
     useState(null);
+
+  /*
+   * =========================================================
+   * HELPER: SHOULD IGNORE CHEAT DETECTION
+   * =========================================================
+   */
+
+  const shouldIgnoreCheatDetection =
+    () => {
+      if (
+        endingInterviewRef.current
+      ) {
+        return true;
+      }
+
+      /*
+       * Ignore browser fullscreen UI
+       * while fullscreen is being requested.
+       */
+      if (
+        fullscreenRequestPendingRef.current
+      ) {
+        return true;
+      }
+
+      return false;
+    };
 
   /*
    * =========================================================
@@ -170,6 +209,7 @@ const Chat = ({
    * 3. Alt + Tab
    * 4. Clicking another window
    * 5. Minimizing the browser
+   * 6. Exiting fullscreen
    *
    * First violation:
    * Candidate leaves and returns.
@@ -201,6 +241,21 @@ const Chat = ({
       if (
         endingInterviewRef.current
       ) {
+        return;
+      }
+
+      /*
+       * Ignore the temporary focus loss
+       * caused by the browser fullscreen
+       * request UI.
+       */
+      if (
+        fullscreenRequestPendingRef.current
+      ) {
+        console.log(
+          `ℹ️ Ignoring focus loss during fullscreen request (${source}).`
+        );
+
         return;
       }
 
@@ -293,7 +348,7 @@ const Chat = ({
           visibilityViolationCountRef.current;
 
         console.log(
-          '⚠️ Tab/window violation:',
+          '⚠️ Tab/window/fullscreen violation:',
           violationCount
         );
 
@@ -327,7 +382,7 @@ const Chat = ({
           violationCount >= 2
         ) {
           console.log(
-            '🛑 Second tab/window violation. Ending interview.'
+            '🛑 Second tab/window/fullscreen violation. Ending interview.'
           );
 
           /*
@@ -361,6 +416,20 @@ const Chat = ({
 
     const handleVisibilityChange =
       () => {
+        /*
+         * Ignore visibility events while
+         * the browser fullscreen UI is active.
+         */
+        if (
+          fullscreenRequestPendingRef.current
+        ) {
+          console.log(
+            'ℹ️ Ignoring visibilitychange during fullscreen request.'
+          );
+
+          return;
+        }
+
         /*
          * Page became hidden.
          */
@@ -398,6 +467,16 @@ const Chat = ({
 
     const handleWindowBlur =
       () => {
+        if (
+          shouldIgnoreCheatDetection()
+        ) {
+          console.log(
+            'ℹ️ Ignoring window blur.'
+          );
+
+          return;
+        }
+
         markPageAsAway(
           'window blur'
         );
@@ -415,12 +494,107 @@ const Chat = ({
     const handleWindowFocus =
       () => {
         /*
+         * Ignore focus events during
+         * fullscreen request.
+         */
+        if (
+          fullscreenRequestPendingRef.current
+        ) {
+          return;
+        }
+
+        /*
          * Give the browser a moment to
          * update document.hidden.
          */
         setTimeout(() => {
           processReturnToInterview();
         }, 100);
+      };
+
+    /*
+     * =======================================================
+     * FULLSCREEN CHANGE
+     * =======================================================
+     *
+     * Once the interview has started,
+     * leaving fullscreen is treated as
+     * leaving the interview environment.
+     */
+
+    const handleFullscreenChange =
+      () => {
+        /*
+         * Ignore the initial fullscreen
+         * request / browser UI.
+         */
+        if (
+          fullscreenRequestPendingRef.current
+        ) {
+          console.log(
+            'ℹ️ Ignoring fullscreenchange during fullscreen request.'
+          );
+
+          return;
+        }
+
+        /*
+         * Don't monitor before the
+         * interview has started.
+         */
+        if (
+          !interviewStartedRef.current
+        ) {
+          return;
+        }
+
+        /*
+         * Don't monitor while interview
+         * is ending.
+         */
+        if (
+          endingInterviewRef.current
+        ) {
+          return;
+        }
+
+        /*
+         * Fullscreen was exited.
+         */
+        if (
+          !document.fullscreenElement
+        ) {
+          console.log(
+            '⚠️ Candidate exited fullscreen.'
+          );
+
+          /*
+           * Treat fullscreen exit as the
+           * same "away" state as blur.
+           *
+           * This also prevents a blur event
+           * immediately following fullscreen
+           * exit from creating a second
+           * violation.
+           */
+          markPageAsAway(
+            'fullscreen exit'
+          );
+
+          /*
+           * Unlike visibilitychange,
+           * leaving fullscreen does not
+           * necessarily make document.hidden
+           * become true.
+           *
+           * Therefore process the violation
+           * shortly after marking the page
+           * as away.
+           */
+          setTimeout(() => {
+            processReturnToInterview();
+          }, 100);
+        }
       };
 
     /*
@@ -432,6 +606,11 @@ const Chat = ({
     document.addEventListener(
       'visibilitychange',
       handleVisibilityChange
+    );
+
+    document.addEventListener(
+      'fullscreenchange',
+      handleFullscreenChange
     );
 
     window.addEventListener(
@@ -454,6 +633,11 @@ const Chat = ({
       document.removeEventListener(
         'visibilitychange',
         handleVisibilityChange
+      );
+
+      document.removeEventListener(
+        'fullscreenchange',
+        handleFullscreenChange
       );
 
       window.removeEventListener(
@@ -554,6 +738,27 @@ const Chat = ({
         console.log(
           '✅ Chat interview cheat detection is active.'
         );
+
+        /*
+         * Safety check:
+         *
+         * The interview should already be
+         * fullscreen because Setup.jsx
+         * requests fullscreen before calling
+         * onStart().
+         *
+         * If fullscreen is somehow not active,
+         * we log it here. The fullscreenchange
+         * listener will catch an exit once
+         * monitoring is active.
+         */
+        if (
+          !document.fullscreenElement
+        ) {
+          console.warn(
+            '⚠️ Interview started without fullscreen active.'
+          );
+        }
       }, 500);
 
     return () => {

@@ -6,15 +6,21 @@ import Chat from './components/Chat';
 import VoiceInterview from './components/VoiceInterview';
 import EvaluationReport from './components/EvaluationReport';
 
-const API_URL = import.meta.env.VITE_API_URL;
+const API_URL =
+  import.meta.env.VITE_API_URL || '';
 
 function App() {
-  const [view, setView] = useState('setup');
+  const [view, setView] =
+    useState('setup');
 
-  const [sessionId, setSessionId] = useState(null);
-  const [reportData, setReportData] = useState(null);
+  const [sessionId, setSessionId] =
+    useState(null);
 
-  const [firstMsg, setFirstMsg] = useState('');
+  const [reportData, setReportData] =
+    useState(null);
+
+  const [firstMsg, setFirstMsg] =
+    useState('');
 
   const [interviewType, setInterviewType] =
     useState('Technical');
@@ -28,11 +34,35 @@ function App() {
   const [voiceRecordingMode, setVoiceRecordingMode] =
     useState('audio');
 
-  const [theme, setTheme] = useState(
-    localStorage.getItem('theme') || 'dark'
-  );
+  /*
+   * =========================================================
+   * SCREEN SHARE STREAM
+   * =========================================================
+   *
+   * Setup.jsx obtains this stream before entering the
+   * VoiceInterview component.
+   *
+   * We keep the exact MediaStream here so it can be passed
+   * directly to VoiceInterview.
+   */
 
-  const [user, setUser] = useState(null);
+  const [screenStream, setScreenStream] =
+    useState(null);
+
+  const [theme, setTheme] =
+    useState(
+      localStorage.getItem('theme') ||
+        'dark'
+    );
+
+  const [user, setUser] =
+    useState(null);
+
+  /*
+   * =========================================================
+   * THEME
+   * =========================================================
+   */
 
   useEffect(() => {
     document.documentElement.setAttribute(
@@ -40,18 +70,25 @@ function App() {
       theme
     );
 
-    localStorage.setItem('theme', theme);
+    localStorage.setItem(
+      'theme',
+      theme
+    );
   }, [theme]);
 
   const toggleTheme = () => {
     setTheme((prev) =>
-      prev === 'dark' ? 'light' : 'dark'
+      prev === 'dark'
+        ? 'light'
+        : 'dark'
     );
   };
 
-  // =========================================================
-  // START NORMAL INTERVIEW
-  // =========================================================
+  /*
+   * =========================================================
+   * START NORMAL INTERVIEW
+   * =========================================================
+   */
 
   const handleStartSession = (
     sid,
@@ -59,312 +96,488 @@ function App() {
     targetType,
     isPressureMode
   ) => {
-    setSessionId(sid);
-    setFirstMsg(replyStr);
-    setInterviewType(targetType);
-    setPressureMode(isPressureMode);
+    /*
+     * Normal interview does not use screen sharing.
+     * Make sure no old voice screen stream survives.
+     */
 
-    setAssessmentMode('technical');
+    if (screenStream) {
+      screenStream
+        .getTracks()
+        .forEach((track) => {
+          try {
+            track.stop();
+          } catch {}
+        });
+
+      setScreenStream(null);
+    }
+
+    setSessionId(sid);
+
+    setFirstMsg(replyStr);
+
+    setInterviewType(
+      targetType
+    );
+
+    setPressureMode(
+      isPressureMode
+    );
+
+    setAssessmentMode(
+      'technical'
+    );
 
     setView('chat');
   };
 
-  // =========================================================
-  // START VOICE INTERVIEW
-  // =========================================================
+  /*
+   * =========================================================
+   * START VOICE INTERVIEW
+   * =========================================================
+   *
+   * Setup.jsx now calls:
+   *
+   * onStartVoice(
+   *   sessionId,
+   *   reply,
+   *   recordingMode,
+   *   screenStream
+   * )
+   *
+   * The fourth argument is the actual browser
+   * MediaStream obtained from getDisplayMedia().
+   */
 
   const handleStartVoiceSession = (
     sid,
     replyStr,
-    selectedRecordingMode
+    selectedRecordingMode,
+    selectedScreenStream
   ) => {
+    console.log(
+      '🎙️ Starting voice interview...'
+    );
+
+    console.log(
+      'Session ID:',
+      sid
+    );
+
+    console.log(
+      'Recording mode:',
+      selectedRecordingMode
+    );
+
+    console.log(
+      '🖥️ Received screen stream:',
+      selectedScreenStream
+    );
+
+    /*
+     * Verify that a video screen-share track
+     * exists when video mode is selected.
+     */
+
+    if (
+      selectedRecordingMode ===
+        'video'
+    ) {
+      const videoTrack =
+        selectedScreenStream?.getVideoTracks?.()[0];
+
+      if (
+        !selectedScreenStream ||
+        !videoTrack ||
+        videoTrack.readyState !==
+          'live'
+      ) {
+        console.error(
+          '❌ Invalid screen stream received.'
+        );
+
+        alert(
+          'Screen sharing was not provided. Please restart the interview and allow screen sharing.'
+        );
+
+        return;
+      }
+
+      console.log(
+        '✅ Live screen-share track received:',
+        videoTrack
+      );
+    }
+
     setSessionId(sid);
+
     setFirstMsg(replyStr);
 
-    setAssessmentMode('voice');
+    setAssessmentMode(
+      'voice'
+    );
 
     setVoiceRecordingMode(
-      selectedRecordingMode || 'audio'
+      selectedRecordingMode ||
+        'audio'
+    );
+
+    /*
+     * IMPORTANT:
+     *
+     * Store the MediaStream in App state.
+     * VoiceInterview will receive this exact stream.
+     */
+
+    setScreenStream(
+      selectedScreenStream ||
+        null
     );
 
     setView('voice');
   };
 
-  // =========================================================
-  // END NORMAL INTERVIEW
-  // =========================================================
+  /*
+   * =========================================================
+   * END NORMAL INTERVIEW
+   * =========================================================
+   */
 
-  const handleEndSession = async (
-    allMessages
-  ) => {
-    try {
-      const fillerWords = [
-        'um',
-        'uh',
-        'like',
-        'actually',
-        'basically',
-        'so'
-      ];
+  const handleEndSession =
+    async (
+      allMessages
+    ) => {
+      try {
+        const fillerWords = [
+          'um',
+          'uh',
+          'like',
+          'actually',
+          'basically',
+          'so'
+        ];
 
-      let totalFillers = 0;
+        let totalFillers = 0;
 
-      const userTranscript = allMessages
-        .filter(
-          (m) => m.sender === 'user'
-        )
-        .map(
-          (m) => m.text.toLowerCase()
-        )
-        .join(' ');
+        const userTranscript =
+          allMessages
+            .filter(
+              (m) =>
+                m.sender ===
+                'user'
+            )
+            .map(
+              (m) =>
+                m.text.toLowerCase()
+            )
+            .join(' ');
 
-      fillerWords.forEach((word) => {
-        const regex = new RegExp(
-          `\\b${word}\\b`,
-          'g'
+        fillerWords.forEach(
+          (word) => {
+            const regex =
+              new RegExp(
+                `\\b${word}\\b`,
+                'g'
+              );
+
+            const matches =
+              userTranscript.match(
+                regex
+              );
+
+            if (matches) {
+              totalFillers +=
+                matches.length;
+            }
+          }
         );
 
-        const matches =
-          userTranscript.match(regex);
+        console.log(
+          'Ending normal interview...'
+        );
 
-        if (matches) {
-          totalFillers += matches.length;
+        console.log(
+          'Session ID:',
+          sessionId
+        );
+
+        console.log(
+          'Filler words:',
+          totalFillers
+        );
+
+        /*
+         * Normal interview does NOT have
+         * a recording.
+         */
+
+        const recordingPath =
+          null;
+
+        const response =
+          await fetch(
+            `${API_URL}/api/end`,
+            {
+              method: 'POST',
+
+              headers: {
+                'Content-Type':
+                  'application/json'
+              },
+
+              body: JSON.stringify({
+                sessionId,
+
+                fillerWordsCount:
+                  totalFillers,
+
+                recordingPath
+              })
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            data.error ||
+              'Failed to generate evaluation report.'
+          );
         }
-      });
 
-      console.log(
-        'Ending normal interview...'
-      );
+        if (
+          data.finalReport
+        ) {
+          const fillerAnalysis =
+            `\n\n--- 🔹 COMMUNICATION ANALYSIS ---\n` +
+            `⚠️ Filler Word Count: ${totalFillers} detected. ` +
+            `(Focus on reducing "um", "uh", "like" for a more professional tone.)\n`;
 
-      console.log(
-        'Session ID:',
-        sessionId
-      );
+          setReportData(
+            data.finalReport +
+              fillerAnalysis
+          );
 
-      console.log(
-        'Filler words:',
-        totalFillers
-      );
-
-      // Normal interview does NOT have a recording.
-      const recordingPath = null;
-
-      const response = await fetch(
-        `${API_URL}/api/end`,
-        {
-          method: 'POST',
-
-          headers: {
-            'Content-Type':
-              'application/json'
-          },
-
-          body: JSON.stringify({
-            sessionId,
-
-            fillerWordsCount:
-              totalFillers,
-
-            recordingPath
-          })
+          setView('report');
+        } else {
+          throw new Error(
+            'The backend did not return a final report.'
+          );
         }
-      );
+      } catch (error) {
+        console.error(
+          'Failed to end session',
+          error
+        );
 
-      const data =
-        await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.error ||
-          'Failed to generate evaluation report.'
+        alert(
+          'Failed to generate report. Is your backend running?'
         );
       }
+    };
 
-      if (data.finalReport) {
-        const fillerAnalysis =
-          `\n\n--- 🔹 COMMUNICATION ANALYSIS ---\n` +
-          `⚠️ Filler Word Count: ${totalFillers} detected. ` +
-          `(Focus on reducing "um", "uh", "like" for a more professional tone.)\n`;
+  /*
+   * =========================================================
+   * END VOICE INTERVIEW
+   * =========================================================
+   */
 
-        setReportData(
-          data.finalReport +
-            fillerAnalysis
+  const handleEndVoiceInterview =
+    async (
+      voiceTranscript,
+      recordingPath = null
+    ) => {
+      try {
+        const fillerWords = [
+          'um',
+          'uh',
+          'like',
+          'actually',
+          'basically',
+          'so'
+        ];
+
+        let totalFillers = 0;
+
+        const userTranscript =
+          voiceTranscript
+            .filter(
+              (message) =>
+                message.sender ===
+                'user'
+            )
+            .map(
+              (message) =>
+                message.text.toLowerCase()
+            )
+            .join(' ');
+
+        fillerWords.forEach(
+          (word) => {
+            const regex =
+              new RegExp(
+                `\\b${word}\\b`,
+                'g'
+              );
+
+            const matches =
+              userTranscript.match(
+                regex
+              );
+
+            if (matches) {
+              totalFillers +=
+                matches.length;
+            }
+          }
         );
 
-        setView('report');
-      } else {
-        throw new Error(
-          'The backend did not return a final report.'
-        );
-      }
-
-    } catch (error) {
-      console.error(
-        'Failed to end session',
-        error
-      );
-
-      alert(
-        'Failed to generate report. Is your backend running?'
-      );
-    }
-  };
-
-  // =========================================================
-  // END VOICE INTERVIEW
-  // =========================================================
-  //
-  // recordingPath is optional for now.
-  //
-  // VoiceInterview will eventually call:
-  //
-  // onEndInterview(
-  //   voiceTranscript,
-  //   recordingPath
-  // )
-  //
-  // The recordingPath will be the Supabase Storage path/URL.
-  //
-  // =========================================================
-
-  const handleEndVoiceInterview = async (
-    voiceTranscript,
-    recordingPath = null
-  ) => {
-    try {
-      const fillerWords = [
-        'um',
-        'uh',
-        'like',
-        'actually',
-        'basically',
-        'so'
-      ];
-
-      let totalFillers = 0;
-
-      const userTranscript =
-        voiceTranscript
-          .filter(
-            (message) =>
-              message.sender === 'user'
-          )
-          .map(
-            (message) =>
-              message.text.toLowerCase()
-          )
-          .join(' ');
-
-      fillerWords.forEach((word) => {
-        const regex = new RegExp(
-          `\\b${word}\\b`,
-          'g'
+        console.log(
+          'Ending voice interview...'
         );
 
-        const matches =
-          userTranscript.match(regex);
+        console.log(
+          'Session ID:',
+          sessionId
+        );
 
-        if (matches) {
-          totalFillers +=
-            matches.length;
+        console.log(
+          'Voice transcript:',
+          voiceTranscript
+        );
+
+        console.log(
+          'Filler words:',
+          totalFillers
+        );
+
+        console.log(
+          'Recording path:',
+          recordingPath
+        );
+
+        /*
+         * =====================================================
+         * SEND EVERYTHING TO BACKEND
+         * =====================================================
+         */
+
+        const response =
+          await fetch(
+            `${API_URL}/api/end`,
+            {
+              method: 'POST',
+
+              headers: {
+                'Content-Type':
+                  'application/json'
+              },
+
+              body: JSON.stringify({
+                sessionId,
+
+                fillerWordsCount:
+                  totalFillers,
+
+                recordingPath:
+                  recordingPath ||
+                  null
+              })
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            data.error ||
+              'Failed to generate evaluation report.'
+          );
         }
-      });
 
-      console.log(
-        'Ending voice interview...'
-      );
+        if (
+          data.finalReport
+        ) {
+          const fillerAnalysis =
+            `\n\n--- 🔹 COMMUNICATION ANALYSIS ---\n` +
+            `⚠️ Filler Word Count: ${totalFillers} detected. ` +
+            `(Focus on reducing "um", "uh", "like" for a more professional tone.)\n`;
 
-      console.log(
-        'Session ID:',
-        sessionId
-      );
+          setReportData(
+            data.finalReport +
+              fillerAnalysis
+          );
 
-      console.log(
-        'Voice transcript:',
-        voiceTranscript
-      );
+          /*
+           * The interview is finished.
+           * The screen stream is no longer needed.
+           */
 
-      console.log(
-        'Filler words:',
-        totalFillers
-      );
+          if (screenStream) {
+            screenStream
+              .getTracks()
+              .forEach((track) => {
+                try {
+                  track.stop();
+                } catch {}
+              });
 
-      console.log(
-        'Recording path:',
-        recordingPath
-      );
+            console.log(
+              '🖥️ Screen sharing stream stopped.'
+            );
 
-      // =====================================================
-      // SEND EVERYTHING TO BACKEND
-      // =====================================================
+            setScreenStream(null);
+          }
 
-      const response = await fetch(
-        `${API_URL}/api/end`,
-        {
-          method: 'POST',
-
-          headers: {
-            'Content-Type':
-              'application/json'
-          },
-
-          body: JSON.stringify({
-            sessionId,
-
-            fillerWordsCount:
-              totalFillers,
-
-            // This will be saved into
-            // AI_MOCK.recording_path
-            recordingPath:
-              recordingPath || null
-          })
+          setView('report');
+        } else {
+          throw new Error(
+            'The backend did not return a final report.'
+          );
         }
-      );
+      } catch (error) {
+        console.error(
+          'Failed to generate voice evaluation:',
+          error
+        );
 
-      const data =
-        await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.error ||
-          'Failed to generate evaluation report.'
+        alert(
+          `Failed to generate evaluation report.\n\n${error.message}`
         );
       }
+    };
 
-      if (data.finalReport) {
-        const fillerAnalysis =
-          `\n\n--- 🔹 COMMUNICATION ANALYSIS ---\n` +
-          `⚠️ Filler Word Count: ${totalFillers} detected. ` +
-          `(Focus on reducing "um", "uh", "like" for a more professional tone.)\n`;
+  /*
+   * =========================================================
+   * CLEANUP SCREEN STREAM
+   * =========================================================
+   *
+   * If the user returns to Setup or the component is
+   * unmounted while a screen stream exists, stop it.
+   */
 
-        setReportData(
-          data.finalReport +
-            fillerAnalysis
-        );
-
-        setView('report');
-      } else {
-        throw new Error(
-          'The backend did not return a final report.'
-        );
+  useEffect(() => {
+    return () => {
+      if (screenStream) {
+        screenStream
+          .getTracks()
+          .forEach((track) => {
+            try {
+              track.stop();
+            } catch {}
+          });
       }
+    };
+  }, []);
 
-    } catch (error) {
-      console.error(
-        'Failed to generate voice evaluation:',
-        error
-      );
-
-      alert(
-        `Failed to generate evaluation report.\n\n${error.message}`
-      );
-    }
-  };
-
-  // =========================================================
-  // UI
-  // =========================================================
+  /*
+   * =========================================================
+   * UI
+   * =========================================================
+   */
 
   return (
     <Routes>
@@ -388,7 +601,10 @@ function App() {
               style={{
                 width:
                   view === 'chat' &&
-                  ['Technical', 'Mixed'].includes(
+                  [
+                    'Technical',
+                    'Mixed'
+                  ].includes(
                     interviewType
                   )
                     ? '100%'
@@ -396,7 +612,10 @@ function App() {
 
                 maxWidth:
                   view === 'chat' &&
-                  ['Technical', 'Mixed'].includes(
+                  [
+                    'Technical',
+                    'Mixed'
+                  ].includes(
                     interviewType
                   )
                     ? '1600px'
@@ -406,15 +625,21 @@ function App() {
               <div
                 className="top-nav"
                 style={{
-                  display: 'flex',
+                  display:
+                    'flex',
+
                   justifyContent:
                     'flex-end',
-                  padding: '1rem'
+
+                  padding:
+                    '1rem'
                 }}
               />
 
-              {view !== 'report' &&
-                view !== 'voice' && (
+              {view !==
+                'report' &&
+                view !==
+                  'voice' && (
                   <h1 className="title">
                     AI-Facilitated
                     Competency
@@ -422,66 +647,140 @@ function App() {
                   </h1>
                 )}
 
-              {/* SETUP */}
+              {/* =================================================
+                  SETUP
+                  ================================================= */}
 
-              {view === 'setup' && (
+              {view ===
+                'setup' && (
                 <Setup
                   onStart={
                     handleStartSession
                   }
+
                   onStartVoice={
                     handleStartVoiceSession
                   }
                 />
               )}
 
-              {/* NORMAL INTERVIEW */}
+              {/* =================================================
+                  NORMAL INTERVIEW
+                  ================================================= */}
 
-              {view === 'chat' && (
+              {view ===
+                'chat' && (
                 <Chat
-                  sessionId={sessionId}
+                  sessionId={
+                    sessionId
+                  }
+
                   initialMessage={
                     firstMsg
                   }
+
                   interviewType={
                     interviewType
                   }
+
                   pressureMode={
                     pressureMode
                   }
+
                   onEndInterview={
                     handleEndSession
                   }
                 />
               )}
 
-              {/* VOICE INTERVIEW */}
+              {/* =================================================
+                  VOICE INTERVIEW
+                  ================================================= */}
 
-              {view === 'voice' && (
+              {view ===
+                'voice' && (
                 <VoiceInterview
-                  sessionId={sessionId}
+                  sessionId={
+                    sessionId
+                  }
+
                   initialMessage={
                     firstMsg
                   }
+
                   recordingMode={
                     voiceRecordingMode
                   }
+
+                  /*
+                   * IMPORTANT:
+                   *
+                   * Pass the SAME screen stream that
+                   * Setup obtained from getDisplayMedia().
+                   */
+
+                  screenStream={
+                    screenStream
+                  }
+
                   onEndInterview={
                     handleEndVoiceInterview
                   }
                 />
               )}
 
-              {/* REPORT */}
+              {/* =================================================
+                  REPORT
+                  ================================================= */}
 
-              {view === 'report' && (
+              {view ===
+                'report' && (
                 <EvaluationReport
                   rawReport={
                     reportData
                   }
-                  onRestart={() =>
-                    setView('setup')
-                  }
+
+                  onRestart={() => {
+                    /*
+                     * Make sure any remaining screen-share
+                     * stream is stopped before going back
+                     * to Setup.
+                     */
+
+                    if (
+                      screenStream
+                    ) {
+                      screenStream
+                        .getTracks()
+                        .forEach(
+                          (track) => {
+                            try {
+                              track.stop();
+                            } catch {}
+                          }
+                        );
+
+                      setScreenStream(
+                        null
+                      );
+                    }
+
+                    setSessionId(
+                      null
+                    );
+
+                    setFirstMsg(
+                      ''
+                    );
+
+                    setReportData(
+                      null
+                    );
+
+                    setView(
+                      'setup'
+                    );
+                  }}
                 />
               )}
             </div>
