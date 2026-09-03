@@ -2382,7 +2382,7 @@ const VoiceInterview = ({
                 'live'
             ) {
               console.error(
-                'Screen stream is not live.'
+                'Screen is not live.'
               );
 
               setError(
