@@ -1,4 +1,7 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, useNavigate } from 'react-router-dom';
+import AuthPage from './pages/AuthPage';
+import ProtectedRoute from './components/ProtectedRoute';
+import { supabase } from './lib/supabaseClient';
 import { useState, useEffect } from 'react';
 
 import Setup from './components/Setup';
@@ -10,6 +13,8 @@ const API_URL =
   import.meta.env.VITE_API_URL || '';
 
 function App() {
+  const navigate = useNavigate();
+
   const [view, setView] =
     useState('setup');
 
@@ -34,18 +39,6 @@ function App() {
   const [voiceRecordingMode, setVoiceRecordingMode] =
     useState('audio');
 
-  /*
-   * =========================================================
-   * SCREEN SHARE STREAM
-   * =========================================================
-   *
-   * Setup.jsx obtains this stream before entering the
-   * VoiceInterview component.
-   *
-   * We keep the exact MediaStream here so it can be passed
-   * directly to VoiceInterview.
-   */
-
   const [screenStream, setScreenStream] =
     useState(null);
 
@@ -58,11 +51,45 @@ function App() {
   const [user, setUser] =
     useState(null);
 
-  /*
-   * =========================================================
-   * THEME
-   * =========================================================
-   */
+  const handleLogout = async () => {
+    try {
+      if (screenStream) {
+        screenStream
+          .getTracks()
+          .forEach((track) => {
+            try {
+              track.stop();
+            } catch {}
+          });
+
+        setScreenStream(null);
+      }
+
+      const { error } =
+        await supabase.auth.signOut();
+
+      if (error) {
+        throw error;
+      }
+
+      setSessionId(null);
+      setFirstMsg('');
+      setReportData(null);
+      setView('setup');
+      setUser(null);
+
+      navigate('/auth');
+    } catch (error) {
+      console.error(
+        'Logout failed:',
+        error
+      );
+
+      alert(
+        'Failed to log out. Please try again.'
+      );
+    }
+  };
 
   useEffect(() => {
     document.documentElement.setAttribute(
@@ -84,23 +111,12 @@ function App() {
     );
   };
 
-  /*
-   * =========================================================
-   * START NORMAL INTERVIEW
-   * =========================================================
-   */
-
   const handleStartSession = (
     sid,
     replyStr,
     targetType,
     isPressureMode
   ) => {
-    /*
-     * Normal interview does not use screen sharing.
-     * Make sure no old voice screen stream survives.
-     */
-
     if (screenStream) {
       screenStream
         .getTracks()
@@ -132,24 +148,6 @@ function App() {
     setView('chat');
   };
 
-  /*
-   * =========================================================
-   * START VOICE INTERVIEW
-   * =========================================================
-   *
-   * Setup.jsx now calls:
-   *
-   * onStartVoice(
-   *   sessionId,
-   *   reply,
-   *   recordingMode,
-   *   screenStream
-   * )
-   *
-   * The fourth argument is the actual browser
-   * MediaStream obtained from getDisplayMedia().
-   */
-
   const handleStartVoiceSession = (
     sid,
     replyStr,
@@ -174,11 +172,6 @@ function App() {
       '🖥️ Received screen stream:',
       selectedScreenStream
     );
-
-    /*
-     * Verify that a video screen-share track
-     * exists when video mode is selected.
-     */
 
     if (
       selectedRecordingMode ===
@@ -223,13 +216,6 @@ function App() {
         'audio'
     );
 
-    /*
-     * IMPORTANT:
-     *
-     * Store the MediaStream in App state.
-     * VoiceInterview will receive this exact stream.
-     */
-
     setScreenStream(
       selectedScreenStream ||
         null
@@ -237,12 +223,6 @@ function App() {
 
     setView('voice');
   };
-
-  /*
-   * =========================================================
-   * END NORMAL INTERVIEW
-   * =========================================================
-   */
 
   const handleEndSession =
     async (
@@ -306,11 +286,6 @@ function App() {
           'Filler words:',
           totalFillers
         );
-
-        /*
-         * Normal interview does NOT have
-         * a recording.
-         */
 
         const recordingPath =
           null;
@@ -377,12 +352,6 @@ function App() {
         );
       }
     };
-
-  /*
-   * =========================================================
-   * END VOICE INTERVIEW
-   * =========================================================
-   */
 
   const handleEndVoiceInterview =
     async (
@@ -458,12 +427,6 @@ function App() {
           recordingPath
         );
 
-        /*
-         * =====================================================
-         * SEND EVERYTHING TO BACKEND
-         * =====================================================
-         */
-
         const response =
           await fetch(
             `${API_URL}/api/end`,
@@ -511,11 +474,6 @@ function App() {
               fillerAnalysis
           );
 
-          /*
-           * The interview is finished.
-           * The screen stream is no longer needed.
-           */
-
           if (screenStream) {
             screenStream
               .getTracks()
@@ -550,15 +508,6 @@ function App() {
       }
     };
 
-  /*
-   * =========================================================
-   * CLEANUP SCREEN STREAM
-   * =========================================================
-   *
-   * If the user returns to Setup or the component is
-   * unmounted while a screen stream exists, stop it.
-   */
-
   useEffect(() => {
     return () => {
       if (screenStream) {
@@ -573,218 +522,208 @@ function App() {
     };
   }, []);
 
-  /*
-   * =========================================================
-   * UI
-   * =========================================================
-   */
-
   return (
     <Routes>
       <Route
+        path="/auth"
+        element={
+          <AuthPage />
+        }
+      />
+
+      <Route
         path="/"
         element={
-          <>
-            <video
-              className="background-video"
-              src="/background.mp4"
-              autoPlay
-              muted
-              loop
-              playsInline
-            />
-
-            <div className="video-overlay"></div>
-
-            <div
-              className="app-wrapper"
-              style={{
-                width:
-                  view === 'chat' &&
-                  [
-                    'Technical',
-                    'Mixed'
-                  ].includes(
-                    interviewType
-                  )
-                    ? '100%'
-                    : undefined,
-
-                maxWidth:
-                  view === 'chat' &&
-                  [
-                    'Technical',
-                    'Mixed'
-                  ].includes(
-                    interviewType
-                  )
-                    ? '1600px'
-                    : undefined
-              }}
-            >
-              <div
-                className="top-nav"
-                style={{
-                  display:
-                    'flex',
-
-                  justifyContent:
-                    'flex-end',
-
-                  padding:
-                    '1rem'
-                }}
+          <ProtectedRoute>
+            <>
+              <video
+                className="background-video"
+                src="/background.mp4"
+                autoPlay
+                muted
+                loop
+                playsInline
               />
 
-              {view !==
-                'report' &&
-                view !==
-                  'voice' && (
-                  <h1 className="title">
-                    AI-Facilitated
-                    Competency
-                    Assessment
-                  </h1>
-                )}
+              <div className="video-overlay"></div>
 
-              {/* =================================================
-                  SETUP
-                  ================================================= */}
+              <div
+                className="app-wrapper"
+                style={{
+                  width:
+                    view === 'chat' &&
+                    [
+                      'Technical',
+                      'Mixed'
+                    ].includes(
+                      interviewType
+                    )
+                      ? '100%'
+                      : undefined,
 
-              {view ===
-                'setup' && (
-                <Setup
-                  onStart={
-                    handleStartSession
-                  }
+                  maxWidth:
+                    view === 'chat' &&
+                    [
+                      'Technical',
+                      'Mixed'
+                    ].includes(
+                      interviewType
+                    )
+                      ? '1600px'
+                      : undefined
+                }}
+              >
+                <div
+                  className="top-nav"
+                  style={{
+                    display:
+                      'flex',
 
-                  onStartVoice={
-                    handleStartVoiceSession
-                  }
-                />
-              )}
+                    justifyContent:
+                      'flex-end',
 
-              {/* =================================================
-                  NORMAL INTERVIEW
-                  ================================================= */}
+                    padding:
+                      '1rem'
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={
+                      handleLogout
+                    }
+                    style={{
+                      width:
+                        'auto',
+                      padding:
+                        '0.6rem 1.2rem'
+                    }}
+                  >
+                    Logout
+                  </button>
+                </div>
 
-              {view ===
-                'chat' && (
-                <Chat
-                  sessionId={
-                    sessionId
-                  }
+                {view !==
+                  'report' &&
+                  view !==
+                    'voice' && (
+                    <h1 className="title">
+                      AI-Facilitated
+                      Competency
+                      Assessment
+                    </h1>
+                  )}
 
-                  initialMessage={
-                    firstMsg
-                  }
-
-                  interviewType={
-                    interviewType
-                  }
-
-                  pressureMode={
-                    pressureMode
-                  }
-
-                  onEndInterview={
-                    handleEndSession
-                  }
-                />
-              )}
-
-              {/* =================================================
-                  VOICE INTERVIEW
-                  ================================================= */}
-
-              {view ===
-                'voice' && (
-                <VoiceInterview
-                  sessionId={
-                    sessionId
-                  }
-
-                  initialMessage={
-                    firstMsg
-                  }
-
-                  recordingMode={
-                    voiceRecordingMode
-                  }
-
-                  /*
-                   * IMPORTANT:
-                   *
-                   * Pass the SAME screen stream that
-                   * Setup obtained from getDisplayMedia().
-                   */
-
-                  screenStream={
-                    screenStream
-                  }
-
-                  onEndInterview={
-                    handleEndVoiceInterview
-                  }
-                />
-              )}
-
-              {/* =================================================
-                  REPORT
-                  ================================================= */}
-
-              {view ===
-                'report' && (
-                <EvaluationReport
-                  rawReport={
-                    reportData
-                  }
-
-                  onRestart={() => {
-                    /*
-                     * Make sure any remaining screen-share
-                     * stream is stopped before going back
-                     * to Setup.
-                     */
-
-                    if (
-                      screenStream
-                    ) {
-                      screenStream
-                        .getTracks()
-                        .forEach(
-                          (track) => {
-                            try {
-                              track.stop();
-                            } catch {}
-                          }
-                        );
-
-                      setScreenStream(
-                        null
-                      );
+                {view ===
+                  'setup' && (
+                  <Setup
+                    onStart={
+                      handleStartSession
                     }
 
-                    setSessionId(
-                      null
-                    );
+                    onStartVoice={
+                      handleStartVoiceSession
+                    }
+                  />
+                )}
 
-                    setFirstMsg(
-                      ''
-                    );
+                {view ===
+                  'chat' && (
+                  <Chat
+                    sessionId={
+                      sessionId
+                    }
 
-                    setReportData(
-                      null
-                    );
+                    initialMessage={
+                      firstMsg
+                    }
 
-                    setView(
-                      'setup'
-                    );
-                  }}
-                />
-              )}
-            </div>
-          </>
+                    interviewType={
+                      interviewType
+                    }
+
+                    pressureMode={
+                      pressureMode
+                    }
+
+                    onEndInterview={
+                      handleEndSession
+                    }
+                  />
+                )}
+
+                {view ===
+                  'voice' && (
+                  <VoiceInterview
+                    sessionId={
+                      sessionId
+                    }
+
+                    initialMessage={
+                      firstMsg
+                    }
+
+                    recordingMode={
+                      voiceRecordingMode
+                    }
+
+                    screenStream={
+                      screenStream
+                    }
+
+                    onEndInterview={
+                      handleEndVoiceInterview
+                    }
+                  />
+                )}
+
+                {view ===
+                  'report' && (
+                  <EvaluationReport
+                    rawReport={
+                      reportData
+                    }
+
+                    onRestart={() => {
+                      if (
+                        screenStream
+                      ) {
+                        screenStream
+                          .getTracks()
+                          .forEach(
+                            (track) => {
+                              try {
+                                track.stop();
+                              } catch {}
+                            }
+                          );
+
+                        setScreenStream(
+                          null
+                        );
+                      }
+
+                      setSessionId(
+                        null
+                      );
+
+                      setFirstMsg(
+                        ''
+                      );
+
+                      setReportData(
+                        null
+                      );
+
+                      setView(
+                        'setup'
+                      );
+                    }}
+                  />
+                )}
+              </div>
+            </>
+          </ProtectedRoute>
         }
       />
     </Routes>
