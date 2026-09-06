@@ -1315,7 +1315,7 @@ const Dashboard = () => {
                           }}
                         >
                           <Link
-                            to={`/dashboard/interview/${interview.id}`}
+                            to={`/dashboard/interview-mode/${interview.id}`}
                             style={
                               secondaryButtonStyle
                             }

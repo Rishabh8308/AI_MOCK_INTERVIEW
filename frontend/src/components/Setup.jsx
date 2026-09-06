@@ -1,34 +1,47 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 import Dropdown from './Dropdown';
+import JobDescriptionSelector from './JobDescriptionSelector';
 
 const Setup = ({ onStart, onStartVoice }) => {
-  const [assessmentMode, setAssessmentMode] =
-    useState('technical');
+  const [searchParams] = useSearchParams();
 
-  const [technicalForm, setTechnicalForm] = useState({
-    role: 'Frontend Developer',
-    experienceLevel: 'Mid-level',
-    skills: 'React, JavaScript, CSS',
-    interviewType: 'Technical',
-    leetcodeUsername: '',
-    githubUsername: '',
-    sessionMode: 'New',
-    persona: 'Friendly',
-    pressureMode: false
-  });
+  const interviewMode =
+    searchParams.get('mode') === 'voice'
+      ? 'voice'
+      : 'normal';
 
-  const [voiceForm, setVoiceForm] = useState({
-    role: 'Frontend Developer',
-    experienceLevel: 'Mid-level',
-    interviewFocus: 'General / HR',
-    persona: 'Friendly',
-    pressureMode: false,
-    recordingMode: 'audio'
-  });
+  const [technicalForm, setTechnicalForm] =
+    useState({
+      role: 'Custom Job Description',
+      jobDescription: '',
+      experienceLevel: 'Mid-level',
+      skills: 'React, JavaScript, CSS',
+      interviewType: 'Technical',
+      leetcodeUsername: '',
+      githubUsername: '',
+      sessionMode: 'New',
+      persona: 'Friendly',
+      pressureMode: false
+    });
 
-  const [leetcodeData, setLeetcodeData] = useState(null);
-  const [githubData, setGithubData] = useState(null);
+  const [voiceForm, setVoiceForm] =
+    useState({
+      role: 'Custom Job Description',
+      jobDescription: '',
+      experienceLevel: 'Mid-level',
+      interviewFocus: 'General / HR',
+      persona: 'Friendly',
+      pressureMode: false,
+      recordingMode: 'audio'
+    });
+
+  const [leetcodeData, setLeetcodeData] =
+    useState(null);
+
+  const [githubData, setGithubData] =
+    useState(null);
 
   const [fetchingLeetcode, setFetchingLeetcode] =
     useState(false);
@@ -36,8 +49,11 @@ const Setup = ({ onStart, onStartVoice }) => {
   const [fetchingGithub, setFetchingGithub] =
     useState(false);
 
-  const [resumeFile, setResumeFile] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [resumeFile, setResumeFile] =
+    useState(null);
+
+  const [loading, setLoading] =
+    useState(false);
 
   const getAuthToken = async () => {
     const {
@@ -60,7 +76,9 @@ const Setup = ({ onStart, onStartVoice }) => {
       return true;
     }
 
-    if (!document.documentElement.requestFullscreen) {
+    if (
+      !document.documentElement.requestFullscreen
+    ) {
       alert(
         'Fullscreen is not supported by this browser. Please use a supported browser and try again.'
       );
@@ -86,460 +104,544 @@ const Setup = ({ onStart, onStartVoice }) => {
     }
   };
 
-  const prepareVoiceVideoScreenShare = async () => {
-    if (
-      !navigator.mediaDevices ||
-      !navigator.mediaDevices.getDisplayMedia
-    ) {
-      alert(
-        'Screen sharing is not supported by this browser. Please use Google Chrome or Microsoft Edge.'
-      );
-
-      return null;
-    }
-
-    try {
-      const screenStream =
-        await navigator.mediaDevices.getDisplayMedia({
-          video: {
-            cursor: 'always'
-          },
-          audio: false
-        });
-
-      const videoTrack =
-        screenStream.getVideoTracks()[0];
-
-      if (!videoTrack) {
-        throw new Error(
-          'No screen-sharing video track was received.'
-        );
-      }
-
-      console.log(
-        '✅ Screen sharing prepared successfully.'
-      );
-
-      return screenStream;
-    } catch (err) {
-      console.error(
-        'Screen-sharing request failed:',
-        err
-      );
-
+  const prepareVoiceVideoScreenShare =
+    async () => {
       if (
-        err.name ===
-        'NotAllowedError'
+        !navigator.mediaDevices ||
+        !navigator.mediaDevices.getDisplayMedia
       ) {
         alert(
-          'Screen sharing is required for Audio + Video interviews. Please select the interview screen/window and try again.'
+          'Screen sharing is not supported by this browser. Please use Google Chrome or Microsoft Edge.'
         );
-      } else {
-        alert(
-          'Unable to start screen sharing: ' +
-            (err.message ||
-              'Unknown error.')
-        );
+
+        return null;
       }
 
-      return null;
-    }
-  };
+      try {
+        const screenStream =
+          await navigator.mediaDevices.getDisplayMedia({
+            video: {
+              cursor: 'always'
+            },
+            audio: false
+          });
 
-  const toggleAssessmentMode = () => {
-    if (loading) return;
+        const videoTrack =
+          screenStream.getVideoTracks()[0];
 
-    setAssessmentMode((current) =>
-      current === 'technical'
-        ? 'voice'
-        : 'technical'
-    );
-  };
+        if (!videoTrack) {
+          throw new Error(
+            'No screen-sharing video track was received.'
+          );
+        }
 
-  const handleFetchLeetCode = async () => {
-    if (!technicalForm.leetcodeUsername) return;
+        console.log(
+          'Screen sharing prepared successfully.'
+        );
 
-    setFetchingLeetcode(true);
+        return screenStream;
+      } catch (err) {
+        console.error(
+          'Screen-sharing request failed:',
+          err
+        );
 
-    try {
-      const token = await getAuthToken();
+        if (
+          err.name ===
+          'NotAllowedError'
+        ) {
+          alert(
+            'Screen sharing is required for Audio + Video interviews. Please select the interview screen/window and try again.'
+          );
+        } else {
+          alert(
+            'Unable to start screen sharing: ' +
+              (err.message ||
+                'Unknown error.')
+          );
+        }
 
-      if (!token) {
+        return null;
+      }
+    };
+
+  const handleJobDescriptionChange =
+    ({ role, description }) => {
+      if (interviewMode === 'voice') {
+        setVoiceForm((current) => ({
+          ...current,
+          role,
+          jobDescription:
+            description
+        }));
+
         return;
       }
 
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/leetcode-profile/${technicalForm.leetcodeUsername}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        }
-      );
+      setTechnicalForm((current) => ({
+        ...current,
+        role,
+        jobDescription:
+          description
+      }));
+    };
 
-      const data = await response.json();
-
-      if (response.ok) {
-        setLeetcodeData(data);
-      } else {
-        alert(
-          data.error ||
-            "Could not find profile. Make sure it's public."
-        );
-
-        setLeetcodeData(null);
-      }
-    } catch (err) {
-      console.error(err);
-
-      alert(
-        'Error fetching LeetCode profile.'
-      );
-    } finally {
-      setFetchingLeetcode(false);
-    }
-  };
-
-  const handleFetchGitHub = async () => {
-    if (!technicalForm.githubUsername) return;
-
-    setFetchingGithub(true);
-
-    try {
-      const token = await getAuthToken();
-
-      if (!token) {
+  const handleFetchLeetCode =
+    async () => {
+      if (
+        !technicalForm.leetcodeUsername
+      ) {
         return;
       }
 
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/github-profile/${technicalForm.githubUsername}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
+      setFetchingLeetcode(true);
+
+      try {
+        const token =
+          await getAuthToken();
+
+        if (!token) {
+          return;
         }
-      );
 
-      const data = await response.json();
+        const response =
+          await fetch(
+            `${import.meta.env.VITE_API_URL}/api/leetcode-profile/${technicalForm.leetcodeUsername}`,
+            {
+              headers: {
+                Authorization:
+                  `Bearer ${token}`
+              }
+            }
+          );
 
-      if (response.ok) {
-        setGithubData(data);
-      } else {
+        const data =
+          await response.json();
+
+        if (response.ok) {
+          setLeetcodeData(data);
+        } else {
+          alert(
+            data.error ||
+              "Could not find profile. Make sure it's public."
+          );
+
+          setLeetcodeData(null);
+        }
+      } catch (err) {
+        console.error(err);
+
         alert(
-          data.error ||
-            'Could not find GitHub profile.'
+          'Error fetching LeetCode profile.'
+        );
+      } finally {
+        setFetchingLeetcode(false);
+      }
+    };
+
+  const handleFetchGitHub =
+    async () => {
+      if (
+        !technicalForm.githubUsername
+      ) {
+        return;
+      }
+
+      setFetchingGithub(true);
+
+      try {
+        const token =
+          await getAuthToken();
+
+        if (!token) {
+          return;
+        }
+
+        const response =
+          await fetch(
+            `${import.meta.env.VITE_API_URL}/api/github-profile/${technicalForm.githubUsername}`,
+            {
+              headers: {
+                Authorization:
+                  `Bearer ${token}`
+              }
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (response.ok) {
+          setGithubData(data);
+        } else {
+          alert(
+            data.error ||
+              'Could not find GitHub profile.'
+          );
+
+          setGithubData(null);
+        }
+      } catch (err) {
+        console.error(err);
+
+        alert(
+          'Error fetching GitHub profile.'
+        );
+      } finally {
+        setFetchingGithub(false);
+      }
+    };
+
+  const handleTechnicalSubmit =
+    async (e) => {
+      e.preventDefault();
+
+      if (
+        !technicalForm.jobDescription.trim()
+      ) {
+        alert(
+          'Please enter or select a job description before starting the interview.'
         );
 
-        setGithubData(null);
-      }
-    } catch (err) {
-      console.error(err);
-
-      alert(
-        'Error fetching GitHub profile.'
-      );
-    } finally {
-      setFetchingGithub(false);
-    }
-  };
-
-  const handleTechnicalSubmit = async (e) => {
-    e.preventDefault();
-
-    const fullscreenStarted =
-      await enterFullscreen();
-
-    if (!fullscreenStarted) {
-      return;
-    }
-
-    setLoading(true);
-
-    const token = await getAuthToken();
-
-    if (!token) {
-      setLoading(false);
-
-      if (document.fullscreenElement) {
-        try {
-          await document.exitFullscreen();
-        } catch {}
+        return;
       }
 
-      return;
-    }
+      const fullscreenStarted =
+        await enterFullscreen();
 
-    const data = new FormData();
+      if (!fullscreenStarted) {
+        return;
+      }
 
-    Object.keys(technicalForm).forEach(
-      (key) => {
+      setLoading(true);
+
+      const token =
+        await getAuthToken();
+
+      if (!token) {
+        setLoading(false);
+
+        if (
+          document.fullscreenElement
+        ) {
+          try {
+            await document.exitFullscreen();
+          } catch {}
+        }
+
+        return;
+      }
+
+      const data =
+        new FormData();
+
+      Object.keys(
+        technicalForm
+      ).forEach((key) => {
         data.append(
           key,
           technicalForm[key]
         );
-      }
-    );
+      });
 
-    data.append(
-      'assessmentMode',
-      'technical'
-    );
-
-    if (resumeFile) {
       data.append(
-        'resume',
-        resumeFile
-      );
-    }
-
-    try {
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/start`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`
-          },
-          body: data
-        }
+        'assessmentMode',
+        'technical'
       );
 
-      const respData =
-        await response.json();
+      data.append(
+        'jobDescription',
+        technicalForm.jobDescription
+      );
 
-      if (response.ok) {
-        onStart(
-          respData.sessionId,
-          respData.reply,
-          technicalForm.interviewType,
-          technicalForm.pressureMode
-        );
-      } else {
-        alert(
-          'Error: ' +
-            (respData.error ||
-              'Unable to start interview.')
+      if (resumeFile) {
+        data.append(
+          'resume',
+          resumeFile
         );
       }
-    } catch (err) {
-      console.error(
-        'Technical interview start error:',
-        err
-      );
 
-      alert(
-        'Error connecting to backend: ' +
-          err.message +
-          '\n\nMake sure the backend is running and the domain is correct.'
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+      try {
+        const response =
+          await fetch(
+            `${import.meta.env.VITE_API_URL}/api/start`,
+            {
+              method: 'POST',
+              headers: {
+                Authorization:
+                  `Bearer ${token}`
+              },
+              body: data
+            }
+          );
 
-  const handleVoiceSubmit = async (e) => {
-    e.preventDefault();
+        const respData =
+          await response.json();
 
-    if (loading) {
-      return;
-    }
+        if (response.ok) {
+          onStart(
+            respData.sessionId,
+            respData.reply,
+            technicalForm.interviewType,
+            technicalForm.pressureMode
+          );
+        } else {
+          alert(
+            'Error: ' +
+              (respData.error ||
+                'Unable to start interview.')
+          );
+        }
+      } catch (err) {
+        console.error(
+          'Technical interview start error:',
+          err
+        );
 
-    let screenStream = null;
+        alert(
+          'Error connecting to backend: ' +
+            err.message +
+            '\n\nMake sure the backend is running and the domain is correct.'
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    if (
-      voiceForm.recordingMode ===
-      'video'
-    ) {
-      screenStream =
-        await prepareVoiceVideoScreenShare();
+  const handleVoiceSubmit =
+    async (e) => {
+      e.preventDefault();
 
-      if (!screenStream) {
+      if (loading) {
         return;
       }
-
-      const screenTrack =
-        screenStream.getVideoTracks()[0];
 
       if (
-        !screenTrack ||
-        screenTrack.readyState !==
-          'live'
+        !voiceForm.jobDescription.trim()
       ) {
-        screenStream
-          .getTracks()
-          .forEach((track) => {
-            try {
-              track.stop();
-            } catch {}
-          });
-
         alert(
-          'Screen sharing was not started successfully. Please try again.'
+          'Please enter or select a job description before starting the interview.'
         );
 
         return;
       }
-    }
 
-    const fullscreenStarted =
-      await enterFullscreen();
+      let screenStream = null;
 
-    if (!fullscreenStarted) {
-      if (screenStream) {
-        screenStream
-          .getTracks()
-          .forEach((track) => {
-            try {
-              track.stop();
-            } catch {}
-          });
-      }
+      if (
+        voiceForm.recordingMode ===
+        'video'
+      ) {
+        screenStream =
+          await prepareVoiceVideoScreenShare();
 
-      return;
-    }
-
-    setLoading(true);
-
-    const token = await getAuthToken();
-
-    if (!token) {
-      if (screenStream) {
-        screenStream
-          .getTracks()
-          .forEach((track) => {
-            try {
-              track.stop();
-            } catch {}
-          });
-      }
-
-      setLoading(false);
-
-      if (document.fullscreenElement) {
-        try {
-          await document.exitFullscreen();
-        } catch {}
-      }
-
-      return;
-    }
-
-    const data = new FormData();
-
-    data.append(
-      'role',
-      voiceForm.role
-    );
-
-    data.append(
-      'experienceLevel',
-      voiceForm.experienceLevel
-    );
-
-    data.append(
-      'interviewType',
-      voiceForm.interviewFocus
-    );
-
-    data.append(
-      'skills',
-      'Communication, Verbal Reasoning, Behavioral Skills'
-    );
-
-    data.append(
-      'persona',
-      voiceForm.persona
-    );
-
-    data.append(
-      'pressureMode',
-      voiceForm.pressureMode
-    );
-
-    data.append(
-      'assessmentMode',
-      'voice'
-    );
-
-    data.append(
-      'recordingMode',
-      voiceForm.recordingMode
-    );
-
-    data.append(
-      'voiceInterview',
-      'true'
-    );
-
-    try {
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/start`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`
-          },
-          body: data
+        if (!screenStream) {
+          return;
         }
-      );
 
-      const respData =
-        await response.json();
+        const screenTrack =
+          screenStream.getVideoTracks()[0];
 
-      if (response.ok) {
-        onStartVoice(
-          respData.sessionId,
-          respData.reply,
-          voiceForm.recordingMode,
+        if (
+          !screenTrack ||
+          screenTrack.readyState !==
+            'live'
+        ) {
           screenStream
-        );
-      } else {
+            .getTracks()
+            .forEach(
+              (track) => {
+                try {
+                  track.stop();
+                } catch {}
+              }
+            );
+
+          alert(
+            'Screen sharing was not started successfully. Please try again.'
+          );
+
+          return;
+        }
+      }
+
+      const fullscreenStarted =
+        await enterFullscreen();
+
+      if (!fullscreenStarted) {
         if (screenStream) {
           screenStream
             .getTracks()
-            .forEach((track) => {
-              try {
-                track.stop();
-              } catch {}
-            });
+            .forEach(
+              (track) => {
+                try {
+                  track.stop();
+                } catch {}
+              }
+            );
+        }
+
+        return;
+      }
+
+      setLoading(true);
+
+      const token =
+        await getAuthToken();
+
+      if (!token) {
+        if (screenStream) {
+          screenStream
+            .getTracks()
+            .forEach(
+              (track) => {
+                try {
+                  track.stop();
+                } catch {}
+              }
+            );
+        }
+
+        setLoading(false);
+
+        if (
+          document.fullscreenElement
+        ) {
+          try {
+            await document.exitFullscreen();
+          } catch {}
+        }
+
+        return;
+      }
+
+      const data =
+        new FormData();
+
+      data.append(
+        'role',
+        voiceForm.role
+      );
+
+      data.append(
+        'jobDescription',
+        voiceForm.jobDescription
+      );
+
+      data.append(
+        'experienceLevel',
+        voiceForm.experienceLevel
+      );
+
+      data.append(
+        'interviewType',
+        voiceForm.interviewFocus
+      );
+
+      data.append(
+        'skills',
+        'Communication, Verbal Reasoning, Behavioral Skills'
+      );
+
+      data.append(
+        'persona',
+        voiceForm.persona
+      );
+
+      data.append(
+        'pressureMode',
+        voiceForm.pressureMode
+      );
+
+      data.append(
+        'assessmentMode',
+        'voice'
+      );
+
+      data.append(
+        'recordingMode',
+        voiceForm.recordingMode
+      );
+
+      data.append(
+        'voiceInterview',
+        'true'
+      );
+
+      try {
+        const response =
+          await fetch(
+            `${import.meta.env.VITE_API_URL}/api/start`,
+            {
+              method: 'POST',
+              headers: {
+                Authorization:
+                  `Bearer ${token}`
+              },
+              body: data
+            }
+          );
+
+        const respData =
+          await response.json();
+
+        if (response.ok) {
+          onStartVoice(
+            respData.sessionId,
+            respData.reply,
+            voiceForm.recordingMode,
+            screenStream
+          );
+        } else {
+          if (screenStream) {
+            screenStream
+              .getTracks()
+              .forEach(
+                (track) => {
+                  try {
+                    track.stop();
+                  } catch {}
+                }
+              );
+
+            screenStream = null;
+          }
+
+          alert(
+            'Error: ' +
+              (respData.error ||
+                'Unable to start voice interview.')
+          );
+        }
+      } catch (err) {
+        console.error(
+          'Voice interview start error:',
+          err
+        );
+
+        if (screenStream) {
+          screenStream
+            .getTracks()
+            .forEach(
+              (track) => {
+                try {
+                  track.stop();
+                } catch {}
+              }
+            );
 
           screenStream = null;
         }
 
         alert(
-          'Error: ' +
-            (respData.error ||
-              'Unable to start voice interview.')
+          'Error connecting to backend: ' +
+            err.message +
+            '\n\nMake sure the backend is running and the domain is correct.'
         );
+      } finally {
+        setLoading(false);
       }
-    } catch (err) {
-      console.error(
-        'Voice interview start error:',
-        err
-      );
-
-      if (screenStream) {
-        screenStream
-          .getTracks()
-          .forEach((track) => {
-            try {
-              track.stop();
-            } catch {}
-          });
-
-        screenStream = null;
-      }
-
-      alert(
-        'Error connecting to backend: ' +
-          err.message +
-          '\n\nMake sure the backend is running and the domain is correct.'
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
 
   const renderToggleCard = ({
     icon,
@@ -559,21 +661,19 @@ const Setup = ({ onStart, onStartVoice }) => {
           boxSizing: 'border-box',
           border: '1px solid',
           borderColor: active
-            ? 'rgba(168, 85, 247, 0.55)'
+            ? 'rgba(22,170,168,0.45)'
             : 'rgba(255,255,255,0.08)',
           borderRadius: '18px',
           padding: '1rem 1.1rem',
           background: active
-            ? 'linear-gradient(135deg, rgba(168,85,247,0.12), rgba(236,72,153,0.04))'
+            ? 'rgba(22,170,168,0.08)'
             : 'rgba(255,255,255,0.025)',
           color: '#fff',
           cursor: 'pointer',
           textAlign: 'left',
           transition:
-            'border-color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease',
-          boxShadow: active
-            ? '0 0 28px rgba(168,85,247,0.08)'
-            : 'none'
+            'border-color 0.25s ease, background 0.25s ease',
+          boxShadow: 'none'
         }}
       >
         <div
@@ -604,7 +704,7 @@ const Setup = ({ onStart, onStartVoice }) => {
                 justifyContent: 'center',
                 fontSize: '1.2rem',
                 background: active
-                  ? 'rgba(168,85,247,0.14)'
+                  ? 'rgba(22,170,168,0.12)'
                   : 'rgba(255,255,255,0.05)',
                 border:
                   '1px solid rgba(255,255,255,0.07)'
@@ -655,7 +755,7 @@ const Setup = ({ onStart, onStartVoice }) => {
                 fontSize: '0.68rem',
                 fontWeight: 700,
                 color: active
-                  ? '#d8b4fe'
+                  ? '#16aaa8'
                   : 'rgba(255,255,255,0.4)',
                 letterSpacing:
                   '0.05em'
@@ -674,7 +774,7 @@ const Setup = ({ onStart, onStartVoice }) => {
                   '999px',
                 padding: '3px',
                 background: active
-                  ? '#9333ea'
+                  ? '#16aaa8'
                   : 'rgba(255,255,255,0.12)'
               }}
             >
@@ -702,875 +802,581 @@ const Setup = ({ onStart, onStartVoice }) => {
     );
   };
 
-  const renderModeSwitch = () => {
-    const isGeneral =
-      assessmentMode === 'technical';
+  const renderTechnicalSetup =
+    () => {
+      return (
+        <>
+          <div className="setup-mode-heading">
+            <span className="setup-mode-label">
+              NORMAL INTERVIEW
+            </span>
 
-    return (
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: '0.45rem',
-          width: '100%'
-        }}
-      >
-        <div
-          style={{
-            fontSize: '0.62rem',
-            fontWeight: 800,
-            letterSpacing: '0.14em',
-            textTransform: 'uppercase',
-            color:
-              'rgba(255,255,255,0.45)'
-          }}
-        >
-          Interview Mode
-        </div>
+            <p>
+              Configure your interview
+              and practice through a
+              traditional text-based
+              experience.
+            </p>
+          </div>
 
-        <button
-          type="button"
-          onClick={
-            toggleAssessmentMode
-          }
-          disabled={loading}
-          aria-label={
-            isGeneral
-              ? 'Switch to Audio Interview'
-              : 'Switch to General Interview'
-          }
-          style={{
-            position: 'relative',
-            display: 'grid',
-            gridTemplateColumns:
-              '1fr 1fr',
-            alignItems: 'center',
-            width: '300px',
-            height: '54px',
-            padding: '4px',
-            border:
-              '1px solid rgba(255,255,255,0.12)',
-            borderRadius: '999px',
-            background:
-              'rgba(8,14,48,0.62)',
-            backdropFilter:
-              'blur(16px)',
-            WebkitBackdropFilter:
-              'blur(16px)',
-            boxShadow:
-              '0 8px 28px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.05)',
-            cursor: loading
-              ? 'not-allowed'
-              : 'pointer',
-            opacity: loading
-              ? 0.55
-              : 1,
-            overflow: 'hidden',
-            transition:
-              'border-color 0.3s ease, box-shadow 0.3s ease'
-          }}
-        >
-          <div
-            style={{
-              position:
-                'absolute',
-              top: '4px',
-              bottom: '4px',
-              left: isGeneral
-                ? '4px'
-                : 'calc(50% + 0px)',
-              width:
-                'calc(50% - 4px)',
-              borderRadius:
-                '999px',
-              background:
-                isGeneral
-                  ? 'linear-gradient(135deg, rgba(168,85,247,0.96), rgba(236,72,153,0.88))'
-                  : 'linear-gradient(135deg, rgba(56,189,248,0.92), rgba(59,130,246,0.86))',
-              boxShadow:
-                isGeneral
-                  ? '0 4px 18px rgba(168,85,247,0.22)'
-                  : '0 4px 18px rgba(56,189,248,0.20)',
-              transition:
-                'left 0.45s cubic-bezier(0.22,0.61,0.36,1), background 0.35s ease, box-shadow 0.35s ease',
-              zIndex: 1,
-              pointerEvents:
-                'none'
-            }}
+          <JobDescriptionSelector
+            value={
+              technicalForm.role
+            }
+            description={
+              technicalForm.jobDescription
+            }
+            onChange={
+              handleJobDescriptionChange
+            }
           />
 
-          <span
-            style={{
-              position:
-                'relative',
-              zIndex: 2,
-              display: 'flex',
-              alignItems:
-                'center',
-              justifyContent:
-                'center',
-              height: '100%',
-              fontSize:
-                '0.72rem',
-              fontWeight: 800,
-              letterSpacing:
-                '0.045em',
-              color: isGeneral
-                ? '#fff'
-                : 'rgba(255,255,255,0.52)',
-              transition:
-                'color 0.3s ease',
-              whiteSpace:
-                'nowrap'
-            }}
+          <form
+            onSubmit={
+              handleTechnicalSubmit
+            }
           >
-            GENERAL
-          </span>
-
-          <span
-            style={{
-              position:
-                'relative',
-              zIndex: 2,
-              display: 'flex',
-              alignItems:
-                'center',
-              justifyContent:
-                'center',
-              height: '100%',
-              fontSize:
-                '0.72rem',
-              fontWeight: 800,
-              letterSpacing:
-                '0.045em',
-              color: !isGeneral
-                ? '#fff'
-                : 'rgba(255,255,255,0.52)',
-              transition:
-                'color 0.3s ease',
-              whiteSpace:
-                'nowrap'
-            }}
-          >
-            AUDIO
-          </span>
-        </button>
-
-        <div
-          style={{
-            fontSize:
-              '0.65rem',
-            color:
-              'rgba(255,255,255,0.38)',
-            lineHeight: 1.3
-          }}
-        >
-          {isGeneral
-            ? 'Technical & general assessment'
-            : 'Voice-based interview'}
-        </div>
-      </div>
-    );
-  };
-
-  const cardStyle = {
-    width: '100%',
-    boxSizing: 'border-box',
-    padding: '2rem',
-    borderRadius: '24px',
-    border:
-      '1px solid rgba(56,189,248,0.22)',
-    background:
-      'rgba(9, 16, 55, 0.35)',
-    backdropFilter:
-      'blur(18px)',
-    WebkitBackdropFilter:
-      'blur(18px)',
-    boxShadow:
-      '0 0 35px rgba(56,189,248,0.12)',
-    color: '#fff'
-  };
-
-  const faceBaseStyle = {
-    width: '100%',
-    boxSizing: 'border-box',
-    backfaceVisibility:
-      'hidden',
-    WebkitBackfaceVisibility:
-      'hidden',
-    transformStyle:
-      'preserve-3d',
-    WebkitTransformStyle:
-      'preserve-3d'
-  };
-
-  return (
-    <div
-      style={{
-        width: '100%',
-        perspective: '1800px',
-        WebkitPerspective:
-          '1800px'
-      }}
-    >
-      <div
-        style={{
-          width: '100%',
-          display: 'grid',
-          position: 'relative',
-          transformStyle:
-            'preserve-3d',
-          WebkitTransformStyle:
-            'preserve-3d',
-          transition:
-            'transform 0.85s cubic-bezier(0.22, 0.61, 0.36, 1)',
-          WebkitTransition:
-            '-webkit-transform 0.85s cubic-bezier(0.22, 0.61, 0.36, 1)',
-          transform:
-            assessmentMode ===
-            'voice'
-              ? 'rotateY(180deg)'
-              : 'rotateY(0deg)',
-          WebkitTransform:
-            assessmentMode ===
-            'voice'
-              ? 'rotateY(180deg)'
-              : 'rotateY(0deg)'
-        }}
-      >
-        <div
-          style={{
-            ...faceBaseStyle,
-            gridArea:
-              '1 / 1',
-            position:
-              'relative',
-            zIndex: 2
-          }}
-        >
-          <div
-            style={{
-              ...cardStyle
-            }}
-          >
-            <h2
-              className="subtitle"
+            <div
               style={{
-                marginBottom:
-                  '0.9rem'
+                display: 'flex',
+                gap: '1rem',
+                position:
+                  'relative',
+                zIndex: 10
               }}
             >
-              Configure your advanced
-              mock interview.
-            </h2>
+              <div
+                className="form-group"
+                style={{
+                  flex: 1,
+                  minWidth: 0
+                }}
+              >
+                <label>
+                  Experience Level
+                </label>
+
+                <Dropdown
+                  options={[
+                    'Junior',
+                    'Mid-level',
+                    'Senior',
+                    'Lead'
+                  ]}
+                  value={
+                    technicalForm.experienceLevel
+                  }
+                  onChange={(val) =>
+                    setTechnicalForm({
+                      ...technicalForm,
+                      experienceLevel:
+                        val
+                    })
+                  }
+                />
+              </div>
+
+              <div
+                className="form-group"
+                style={{
+                  flex: 1,
+                  minWidth: 0
+                }}
+              >
+                <label>
+                  Interview Type
+                </label>
+
+                <Dropdown
+                  options={[
+                    'Technical',
+                    'Behavioral',
+                    'Mixed'
+                  ]}
+                  value={
+                    technicalForm.interviewType
+                  }
+                  onChange={(val) =>
+                    setTechnicalForm({
+                      ...technicalForm,
+                      interviewType:
+                        val
+                    })
+                  }
+                />
+              </div>
+            </div>
 
             <div
               style={{
                 display: 'flex',
-                justifyContent:
-                  'center',
-                marginBottom:
-                  '1.2rem'
+                gap: '1rem',
+                position:
+                  'relative',
+                zIndex: 9
               }}
             >
-              {renderModeSwitch()}
-            </div>
-
-            <form
-              onSubmit={
-                handleTechnicalSubmit
-              }
-            >
               <div
+                className="form-group"
                 style={{
-                  display: 'flex',
-                  gap: '1rem',
-                  position:
-                    'relative',
-                  zIndex: 10
+                  flex: 1,
+                  minWidth: 0
                 }}
               >
-                <div
-                  className="form-group"
-                  style={{
-                    flex: 1,
-                    minWidth: 0
-                  }}
-                >
-                  <label>
-                    Job Role
-                  </label>
+                <label>
+                  Key Skills
+                </label>
 
-                  <Dropdown
-                    options={[
-                      'Frontend Developer',
-                      'Backend Developer',
-                      'Full Stack Developer',
-                      'Mobile Developer',
-                      'Data Scientist',
-                      'Machine Learning Engineer',
-                      'DevOps Engineer',
-                      'Product Manager',
-                      'UI/UX Designer',
-                      'QA Engineer',
-                      'Security Engineer'
-                    ]}
-                    value={
-                      technicalForm.role
-                    }
-                    onChange={(val) =>
-                      setTechnicalForm({
-                        ...technicalForm,
-                        role: val
-                      })
-                    }
-                  />
-                </div>
+                <input
+                  type="text"
+                  required
+                  value={
+                    technicalForm.skills
+                  }
+                  onChange={(e) =>
+                    setTechnicalForm({
+                      ...technicalForm,
+                      skills:
+                        e.target.value
+                    })
+                  }
+                  placeholder="e.g. React, Node..."
+                />
 
-                <div
-                  className="form-group"
-                  style={{
-                    flex: 1,
-                    minWidth: 0
-                  }}
-                >
-                  <label>
-                    Experience Level
-                  </label>
-
-                  <Dropdown
-                    options={[
-                      'Junior',
-                      'Mid-level',
-                      'Senior',
-                      'Lead'
-                    ]}
-                    value={
-                      technicalForm.experienceLevel
-                    }
-                    onChange={(val) =>
-                      setTechnicalForm({
-                        ...technicalForm,
-                        experienceLevel:
-                          val
-                      })
-                    }
-                  />
-                </div>
-              </div>
-
-              <div
-                style={{
-                  display: 'flex',
-                  gap: '1rem',
-                  position:
-                    'relative',
-                  zIndex: 9
-                }}
-              >
-                <div
-                  className="form-group"
-                  style={{
-                    flex: 1,
-                    minWidth: 0
-                  }}
-                >
-                  <label>
-                    Key Skills
-                  </label>
-
-                  <input
-                    type="text"
-                    required
-                    value={
-                      technicalForm.skills
-                    }
-                    onChange={(e) =>
-                      setTechnicalForm({
-                        ...technicalForm,
-                        skills:
-                          e.target.value
-                      })
-                    }
-                    placeholder="e.g. React, Node..."
-                  />
-
-                  <div className="skill-badges">
-                    {[
-                      'React',
-                      'Node.js',
-                      'Python',
-                      'Java',
-                      'AWS',
-                      'SQL',
-                      'TypeScript',
-                      'System Design'
-                    ].map(
-                      (skill) => (
-                        <span
-                          key={skill}
-                          className="skill-badge"
-                          onClick={() => {
-                            const current =
-                              technicalForm.skills.trim();
-
-                            if (
-                              !current.includes(
-                                skill
-                              )
-                            ) {
-                              setTechnicalForm({
-                                ...technicalForm,
-                                skills:
-                                  current
-                                    ? `${current}, ${skill}`
-                                    : skill
-                              });
-                            }
-                          }}
-                        >
-                          +{skill}
-                        </span>
-                      )
-                    )}
-                  </div>
-                </div>
-
-                <div
-                  className="form-group"
-                  style={{
-                    flex: 1,
-                    minWidth: 0
-                  }}
-                >
-                  <label>
-                    Interview Type
-                  </label>
-
-                  <Dropdown
-                    options={[
-                      'Technical',
-                      'Behavioral',
-                      'Mixed'
-                    ]}
-                    value={
-                      technicalForm.interviewType
-                    }
-                    onChange={(val) =>
-                      setTechnicalForm({
-                        ...technicalForm,
-                        interviewType:
-                          val
-                      })
-                    }
-                  />
-                </div>
-              </div>
-
-              <div
-                style={{
-                  display: 'flex',
-                  gap: '1rem',
-                  position:
-                    'relative',
-                  zIndex: 8
-                }}
-              >
-                <div
-                  className="form-group"
-                  style={{
-                    flex: 1,
-                    minWidth: 0
-                  }}
-                >
-                  <label>
-                    LeetCode Username
-                  </label>
-
-                  <div
-                    style={{
-                      display:
-                        'flex',
-                      gap:
-                        '0.5rem'
-                    }}
-                  >
-                    <input
-                      type="text"
-                      value={
-                        technicalForm.leetcodeUsername
-                      }
-                      onChange={(e) =>
-                        setTechnicalForm({
-                          ...technicalForm,
-                          leetcodeUsername:
-                            e.target.value
-                        })
-                      }
-                      placeholder="Username"
-                      style={{
-                        flex: 1,
-                        minWidth: 0
-                      }}
-                    />
-
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={
-                        handleFetchLeetCode
-                      }
-                      disabled={
-                        fetchingLeetcode ||
-                        !technicalForm.leetcodeUsername
-                      }
-                      style={{
-                        padding:
-                          '0 1rem',
-                        width:
-                          'auto',
-                        flexShrink:
-                          0
-                      }}
-                    >
-                      {fetchingLeetcode ? (
-                        <div
-                          className="spinner"
-                          style={{
-                            width:
-                              '18px',
-                            height:
-                              '18px'
-                          }}
-                        />
-                      ) : (
-                        'Fetch'
-                      )}
-                    </button>
-                  </div>
-
-                  {leetcodeData && (
-                    <div
-                      className="skill-badges"
-                      style={{
-                        marginTop:
-                          '0.5rem'
-                      }}
-                    >
+                <div className="skill-badges">
+                  {[
+                    'React',
+                    'Node.js',
+                    'Python',
+                    'Java',
+                    'AWS',
+                    'SQL',
+                    'TypeScript',
+                    'System Design'
+                  ].map(
+                    (skill) => (
                       <span
+                        key={skill}
                         className="skill-badge"
-                        style={{
-                          background:
-                            'rgba(34,197,94,0.1)',
-                          color:
-                            '#22c55e',
-                          borderColor:
-                            '#22c55e'
-                        }}
-                      >
-                        Solved:{' '}
-                        {leetcodeData
-                          .submitStats
-                          ?.acSubmissionNum
-                          ?.find(
-                            (s) =>
-                              s.difficulty ===
-                              'All'
-                          )
-                          ?.count ||
-                          0}
-                      </span>
+                        onClick={() => {
+                          const current =
+                            technicalForm.skills.trim();
 
-                      <span
-                        className="skill-badge"
-                        style={{
-                          background:
-                            'rgba(168,85,247,0.1)',
-                          color:
-                            '#a855f7',
-                          borderColor:
-                            '#a855f7'
-                        }}
-                      >
-                        Rank:{' '}
-                        {leetcodeData
-                          .profile
-                          ?.ranking ||
-                          'N/A'}
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                <div
-                  className="form-group"
-                  style={{
-                    flex: 1,
-                    minWidth: 0
-                  }}
-                >
-                  <label>
-                    GitHub Username
-                  </label>
-
-                  <div
-                    style={{
-                      display:
-                        'flex',
-                      gap:
-                        '0.5rem'
-                    }}
-                  >
-                    <input
-                      type="text"
-                      value={
-                        technicalForm.githubUsername
-                      }
-                      onChange={(e) =>
-                        setTechnicalForm({
-                          ...technicalForm,
-                          githubUsername:
-                            e.target.value
-                        })
-                      }
-                      placeholder="Username"
-                      style={{
-                        flex: 1,
-                        minWidth: 0
-                      }}
-                    />
-
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={
-                        handleFetchGitHub
-                      }
-                      disabled={
-                        fetchingGithub ||
-                        !technicalForm.githubUsername
-                      }
-                      style={{
-                        padding:
-                          '0 1rem',
-                        width:
-                          'auto',
-                        flexShrink:
-                          0
-                      }}
-                    >
-                      {fetchingGithub ? (
-                        <div
-                          className="spinner"
-                          style={{
-                            width:
-                              '18px',
-                            height:
-                              '18px'
-                          }}
-                        />
-                      ) : (
-                        'Fetch'
-                      )}
-                    </button>
-                  </div>
-
-                  {githubData && (
-                    <div
-                      style={{
-                        marginTop:
-                          '0.8rem',
-                        background:
-                          'rgba(255,255,255,0.03)',
-                        borderRadius:
-                          '12px',
-                        padding:
-                          '0.8rem',
-                        border:
-                          '1px solid rgba(255,255,255,0.05)'
-                      }}
-                    >
-                      <div
-                        style={{
-                          display:
-                            'flex',
-                          alignItems:
-                            'center',
-                          gap:
-                            '0.5rem',
-                          marginBottom:
-                            '0.5rem'
-                        }}
-                      >
-                        <img
-                          src={
-                            githubData
-                              .profile
-                              .avatarUrl
-                          }
-                          alt="avatar"
-                          style={{
-                            width:
-                              '24px',
-                            height:
-                              '24px',
-                            borderRadius:
-                              '50%'
-                          }}
-                        />
-
-                        <span
-                          style={{
-                            fontSize:
-                              '0.85rem',
-                            fontWeight:
-                              600
-                          }}
-                        >
-                          {githubData
-                            .profile
-                            .name ||
-                            githubData
-                              .profile
-                              .username}
-                        </span>
-                      </div>
-
-                      <div className="skill-badges">
-                        {githubData
-                          .repositories
-                          .slice(
-                            0,
-                            3
-                          )
-                          .map(
-                            (repo) => (
-                              <span
-                                key={
-                                  repo.name
-                                }
-                                className="skill-badge"
-                                style={{
-                                  fontSize:
-                                    '0.7rem',
-                                  padding:
-                                    '0.2rem 0.6rem',
-                                  borderStyle:
-                                    'dashed'
-                                }}
-                                title={
-                                  repo.description
-                                }
-                              >
-                                📦{' '}
-                                {
-                                  repo.name
-                                }
-                              </span>
+                          if (
+                            !current.includes(
+                              skill
                             )
-                          )}
-
-                        {githubData
-                          .repositories
-                          .length >
-                          3 && (
-                          <span
-                            style={{
-                              fontSize:
-                                '0.7rem',
-                              opacity:
-                                0.5
-                            }}
-                          >
-                            +
-                            {githubData
-                              .repositories
-                              .length -
-                              3}{' '}
-                            more
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                          ) {
+                            setTechnicalForm({
+                              ...technicalForm,
+                              skills:
+                                current
+                                  ? `${current}, ${skill}`
+                                  : skill
+                            });
+                          }
+                        }}
+                      >
+                        +{skill}
+                      </span>
+                    )
                   )}
-                </div>
-              </div>
-
-              <div
-                style={{
-                  display: 'flex',
-                  gap: '1rem',
-                  alignItems:
-                    'center',
-                  position:
-                    'relative',
-                  zIndex: 7
-                }}
-              >
-                <div
-                  className="form-group"
-                  style={{
-                    flex: 1,
-                    minWidth: 0
-                  }}
-                >
-                  <label>
-                    Interviewer Persona
-                  </label>
-
-                  <Dropdown
-                    options={[
-                      'Friendly',
-                      'Strict',
-                      'Guru',
-                      'FAANG Style',
-                      'Startup Style',
-                      'Corporate Style'
-                    ]}
-                    value={
-                      technicalForm.persona
-                    }
-                    onChange={(val) =>
-                      setTechnicalForm({
-                        ...technicalForm,
-                        persona: val
-                      })
-                    }
-                  />
-                </div>
-
-                <div
-                  style={{
-                    flex: 1,
-                    minWidth: 0,
-                    paddingTop:
-                      '0.65rem'
-                  }}
-                >
-                  {renderToggleCard({
-                    icon: '🔥',
-                    title:
-                      'Pressure Mode',
-                    description:
-                      'Make the interviewer more challenging',
-                    active:
-                      technicalForm.pressureMode,
-                    onClick: () =>
-                      setTechnicalForm({
-                        ...technicalForm,
-                        pressureMode:
-                          !technicalForm.pressureMode
-                      })
-                  })}
                 </div>
               </div>
 
               <div
                 className="form-group"
                 style={{
-                  marginTop:
-                    '0.4rem'
+                  flex: 1,
+                  minWidth: 0
+                }}
+              >
+                <label>
+                  Interviewer Persona
+                </label>
+
+                <Dropdown
+                  options={[
+                    'Friendly',
+                    'Strict',
+                    'Guru',
+                    'FAANG Style',
+                    'Startup Style',
+                    'Corporate Style'
+                  ]}
+                  value={
+                    technicalForm.persona
+                  }
+                  onChange={(val) =>
+                    setTechnicalForm({
+                      ...technicalForm,
+                      persona: val
+                    })
+                  }
+                />
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                gap: '1rem',
+                position:
+                  'relative',
+                zIndex: 8
+              }}
+            >
+              <div
+                className="form-group"
+                style={{
+                  flex: 1,
+                  minWidth: 0
+                }}
+              >
+                <label>
+                  LeetCode Username
+                </label>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: '0.5rem'
+                  }}
+                >
+                  <input
+                    type="text"
+                    value={
+                      technicalForm.leetcodeUsername
+                    }
+                    onChange={(e) =>
+                      setTechnicalForm({
+                        ...technicalForm,
+                        leetcodeUsername:
+                          e.target.value
+                      })
+                    }
+                    placeholder="Username"
+                    style={{
+                      flex: 1,
+                      minWidth: 0
+                    }}
+                  />
+
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={
+                      handleFetchLeetCode
+                    }
+                    disabled={
+                      fetchingLeetcode ||
+                      !technicalForm.leetcodeUsername
+                    }
+                    style={{
+                      padding:
+                        '0 1rem',
+                      width: 'auto',
+                      flexShrink: 0
+                    }}
+                  >
+                    {fetchingLeetcode ? (
+                      <div
+                        className="spinner"
+                        style={{
+                          width:
+                            '18px',
+                          height:
+                            '18px'
+                        }}
+                      />
+                    ) : (
+                      'Fetch'
+                    )}
+                  </button>
+                </div>
+
+                {leetcodeData && (
+                  <div
+                    className="skill-badges"
+                    style={{
+                      marginTop:
+                        '0.5rem'
+                    }}
+                  >
+                    <span
+                      className="skill-badge"
+                      style={{
+                        background:
+                          'rgba(34,197,94,0.1)',
+                        color:
+                          '#22c55e',
+                        borderColor:
+                          '#22c55e'
+                      }}
+                    >
+                      Solved:{' '}
+                      {leetcodeData
+                        .submitStats
+                        ?.acSubmissionNum
+                        ?.find(
+                          (s) =>
+                            s.difficulty ===
+                            'All'
+                        )
+                        ?.count ||
+                        0}
+                    </span>
+
+                    <span
+                      className="skill-badge"
+                      style={{
+                        background:
+                          'rgba(168,85,247,0.1)',
+                        color:
+                          '#a855f7',
+                        borderColor:
+                          '#a855f7'
+                      }}
+                    >
+                      Rank:{' '}
+                      {leetcodeData
+                        .profile
+                        ?.ranking ||
+                        'N/A'}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div
+                className="form-group"
+                style={{
+                  flex: 1,
+                  minWidth: 0
+                }}
+              >
+                <label>
+                  GitHub Username
+                </label>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: '0.5rem'
+                  }}
+                >
+                  <input
+                    type="text"
+                    value={
+                      technicalForm.githubUsername
+                    }
+                    onChange={(e) =>
+                      setTechnicalForm({
+                        ...technicalForm,
+                        githubUsername:
+                          e.target.value
+                      })
+                    }
+                    placeholder="Username"
+                    style={{
+                      flex: 1,
+                      minWidth: 0
+                    }}
+                  />
+
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={
+                      handleFetchGitHub
+                    }
+                    disabled={
+                      fetchingGithub ||
+                      !technicalForm.githubUsername
+                    }
+                    style={{
+                      padding:
+                        '0 1rem',
+                      width: 'auto',
+                      flexShrink: 0
+                    }}
+                  >
+                    {fetchingGithub ? (
+                      <div
+                        className="spinner"
+                        style={{
+                          width:
+                            '18px',
+                          height:
+                            '18px'
+                        }}
+                      />
+                    ) : (
+                      'Fetch'
+                    )}
+                  </button>
+                </div>
+
+                {githubData && (
+                  <div
+                    style={{
+                      marginTop:
+                        '0.8rem',
+                      background:
+                        'rgba(255,255,255,0.03)',
+                      borderRadius:
+                        '12px',
+                      padding:
+                        '0.8rem',
+                      border:
+                        '1px solid rgba(255,255,255,0.05)'
+                    }}
+                  >
+                    <div
+                      style={{
+                        display:
+                          'flex',
+                        alignItems:
+                          'center',
+                        gap:
+                          '0.5rem',
+                        marginBottom:
+                          '0.5rem'
+                      }}
+                    >
+                      <img
+                        src={
+                          githubData
+                            .profile
+                            .avatarUrl
+                        }
+                        alt="avatar"
+                        style={{
+                          width:
+                            '24px',
+                          height:
+                            '24px',
+                          borderRadius:
+                            '50%'
+                        }}
+                      />
+
+                      <span
+                        style={{
+                          fontSize:
+                            '0.85rem',
+                          fontWeight:
+                            600
+                        }}
+                      >
+                        {githubData
+                          .profile
+                          .name ||
+                          githubData
+                            .profile
+                            .username}
+                      </span>
+                    </div>
+
+                    <div className="skill-badges">
+                      {githubData
+                        .repositories
+                        .slice(
+                          0,
+                          3
+                        )
+                        .map(
+                          (repo) => (
+                            <span
+                              key={
+                                repo.name
+                              }
+                              className="skill-badge"
+                              style={{
+                                fontSize:
+                                  '0.7rem',
+                                padding:
+                                  '0.2rem 0.6rem',
+                                borderStyle:
+                                  'dashed'
+                              }}
+                              title={
+                                repo.description
+                              }
+                            >
+                              📦{' '}
+                              {
+                                repo.name
+                              }
+                            </span>
+                          )
+                        )}
+
+                      {githubData
+                        .repositories
+                        .length >
+                        3 && (
+                        <span
+                          style={{
+                            fontSize:
+                              '0.7rem',
+                            opacity:
+                              0.5
+                          }}
+                        >
+                          +
+                          {githubData
+                            .repositories
+                            .length -
+                            3}{' '}
+                          more
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                gap: '1rem',
+                alignItems:
+                  'center',
+                position:
+                  'relative',
+                zIndex: 7
+              }}
+            >
+              <div
+                style={{
+                  flex: 1,
+                  minWidth: 0
+                }}
+              >
+                {renderToggleCard({
+                  icon: '🔥',
+                  title:
+                    'Pressure Mode',
+                  description:
+                    'Make the interviewer more challenging',
+                  active:
+                    technicalForm.pressureMode,
+                  onClick: () =>
+                    setTechnicalForm({
+                      ...technicalForm,
+                      pressureMode:
+                        !technicalForm.pressureMode
+                    })
+                })}
+              </div>
+
+              <div
+                className="form-group"
+                style={{
+                  flex: 1,
+                  minWidth: 0
                 }}
               >
                 <label>
@@ -1593,161 +1399,107 @@ const Setup = ({ onStart, onStartVoice }) => {
                   }}
                 />
               </div>
+            </div>
 
-              <button
-                type="submit"
-                className="btn btn-primary"
-                disabled={loading}
-                style={{
-                  marginTop:
-                    '1rem'
-                }}
-              >
-                {loading ? (
-                  <div className="spinner" />
-                ) : (
-                  'Start Interview Session'
-                )}
-              </button>
-            </form>
-          </div>
-        </div>
-
-        <div
-          style={{
-            ...faceBaseStyle,
-            gridArea:
-              '1 / 1',
-            position:
-              'relative',
-            transform:
-              'rotateY(180deg)',
-            WebkitTransform:
-              'rotateY(180deg)',
-            zIndex: 1
-          }}
-        >
-          <div
-            style={{
-              ...cardStyle,
-              border:
-                '1px solid rgba(168,85,247,0.28)',
-              boxShadow:
-                '0 0 35px rgba(168,85,247,0.12)'
-            }}
-          >
-            <h2
-              className="subtitle"
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={loading}
               style={{
-                marginBottom:
-                  '0.9rem'
+                marginTop:
+                  '1rem'
               }}
             >
-              Configure your advanced
-              mock interview.
-            </h2>
+              {loading ? (
+                <div className="spinner" />
+              ) : (
+                'Start Interview Session'
+              )}
+            </button>
+          </form>
+        </>
+      );
+    };
 
+  const renderVoiceSetup =
+    () => {
+      return (
+        <>
+          <div className="setup-mode-heading">
+            <span className="setup-mode-label">
+              VOICE INTERVIEW
+            </span>
+
+            <p>
+              Configure your interview
+              and practice through a
+              natural voice-based
+              experience.
+            </p>
+          </div>
+
+          <JobDescriptionSelector
+            value={
+              voiceForm.role
+            }
+            description={
+              voiceForm.jobDescription
+            }
+            onChange={
+              handleJobDescriptionChange
+            }
+          />
+
+          <form
+            onSubmit={
+              handleVoiceSubmit
+            }
+          >
             <div
               style={{
                 display: 'flex',
-                justifyContent:
-                  'center',
-                marginBottom:
-                  '1.2rem'
+                gap: '1rem',
+                position:
+                  'relative',
+                zIndex: 10
               }}
             >
-              {renderModeSwitch()}
-            </div>
-
-            <form
-              onSubmit={
-                handleVoiceSubmit
-              }
-            >
               <div
+                className="form-group"
                 style={{
-                  display: 'flex',
-                  gap: '1rem',
-                  position:
-                    'relative',
-                  zIndex: 10
+                  flex: 1,
+                  minWidth: 0
                 }}
               >
-                <div
-                  className="form-group"
-                  style={{
-                    flex: 1,
-                    minWidth: 0
-                  }}
-                >
-                  <label>
-                    Job Role
-                  </label>
+                <label>
+                  Experience Level
+                </label>
 
-                  <Dropdown
-                    options={[
-                      'Frontend Developer',
-                      'Backend Developer',
-                      'Full Stack Developer',
-                      'Mobile Developer',
-                      'Data Scientist',
-                      'Machine Learning Engineer',
-                      'DevOps Engineer',
-                      'Product Manager',
-                      'UI/UX Designer',
-                      'QA Engineer',
-                      'Security Engineer'
-                    ]}
-                    value={
-                      voiceForm.role
-                    }
-                    onChange={(val) =>
-                      setVoiceForm({
-                        ...voiceForm,
-                        role: val
-                      })
-                    }
-                  />
-                </div>
-
-                <div
-                  className="form-group"
-                  style={{
-                    flex: 1,
-                    minWidth: 0
-                  }}
-                >
-                  <label>
-                    Experience Level
-                  </label>
-
-                  <Dropdown
-                    options={[
-                      'Junior',
-                      'Mid-level',
-                      'Senior',
-                      'Lead'
-                    ]}
-                    value={
-                      voiceForm.experienceLevel
-                    }
-                    onChange={(val) =>
-                      setVoiceForm({
-                        ...voiceForm,
-                        experienceLevel:
-                          val
-                      })
-                    }
-                  />
-                </div>
+                <Dropdown
+                  options={[
+                    'Junior',
+                    'Mid-level',
+                    'Senior',
+                    'Lead'
+                  ]}
+                  value={
+                    voiceForm.experienceLevel
+                  }
+                  onChange={(val) =>
+                    setVoiceForm({
+                      ...voiceForm,
+                      experienceLevel:
+                        val
+                    })
+                  }
+                />
               </div>
 
               <div
                 className="form-group"
                 style={{
-                  position:
-                    'relative',
-                  zIndex: 9
+                  flex: 1,
+                  minWidth: 0
                 }}
               >
                 <label>
@@ -1773,404 +1525,423 @@ const Setup = ({ onStart, onStartVoice }) => {
                   }
                 />
               </div>
+            </div>
 
-              <div
-                className="form-group"
-                style={{
-                  position:
-                    'relative',
-                  zIndex: 8
-                }}
-              >
-                <label>
-                  Interviewer Persona
-                </label>
+            <div
+              className="form-group"
+              style={{
+                position:
+                  'relative',
+                zIndex: 9
+              }}
+            >
+              <label>
+                Interviewer Persona
+              </label>
 
-                <Dropdown
-                  options={[
-                    'Friendly',
-                    'Strict',
-                    'Professional',
-                    'FAANG Style',
-                    'Startup Style',
-                    'Corporate Style'
-                  ]}
-                  value={
-                    voiceForm.persona
-                  }
-                  onChange={(val) =>
-                    setVoiceForm({
-                      ...voiceForm,
-                      persona: val
-                    })
-                  }
-                />
-              </div>
+              <Dropdown
+                options={[
+                  'Friendly',
+                  'Strict',
+                  'Professional',
+                  'FAANG Style',
+                  'Startup Style',
+                  'Corporate Style'
+                ]}
+                value={
+                  voiceForm.persona
+                }
+                onChange={(val) =>
+                  setVoiceForm({
+                    ...voiceForm,
+                    persona: val
+                  })
+                }
+              />
+            </div>
 
-              <div
-                className="form-group"
-                style={{
-                  marginTop:
-                    '0.8rem'
-                }}
-              >
-                <label>
-                  Recording Mode
-                </label>
-
-                <div
-                  style={{
-                    display:
-                      'grid',
-                    gridTemplateColumns:
-                      'repeat(2, minmax(0, 1fr))',
-                    gap:
-                      '1rem'
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setVoiceForm({
-                        ...voiceForm,
-                        recordingMode:
-                          'audio'
-                      })
-                    }
-                    style={{
-                      position:
-                        'relative',
-                      minWidth:
-                        0,
-                      padding:
-                        '1rem 1.1rem',
-                      border:
-                        '1px solid',
-                      borderColor:
-                        voiceForm.recordingMode ===
-                        'audio'
-                          ? 'rgba(56,189,248,0.6)'
-                          : 'rgba(255,255,255,0.08)',
-                      borderRadius:
-                        '18px',
-                      background:
-                        voiceForm.recordingMode ===
-                        'audio'
-                          ? 'linear-gradient(135deg, rgba(56,189,248,0.12), rgba(56,189,248,0.035))'
-                          : 'rgba(255,255,255,0.025)',
-                      color:
-                        '#fff',
-                      cursor:
-                        'pointer',
-                      textAlign:
-                        'left',
-                      boxSizing:
-                        'border-box',
-                      transition:
-                        'all 0.25s ease',
-                      boxShadow:
-                        voiceForm.recordingMode ===
-                        'audio'
-                          ? '0 0 28px rgba(56,189,248,0.08)'
-                          : 'none'
-                    }}
-                  >
-                    <div
-                      style={{
-                        display:
-                          'flex',
-                        alignItems:
-                          'center',
-                        gap:
-                          '0.85rem',
-                        minWidth:
-                          0
-                      }}
-                    >
-                      <div
-                        style={{
-                          width:
-                            '42px',
-                          height:
-                            '42px',
-                          flexShrink:
-                            0,
-                          borderRadius:
-                            '13px',
-                          display:
-                            'flex',
-                          alignItems:
-                            'center',
-                          justifyContent:
-                            'center',
-                          fontSize:
-                            '1.2rem',
-                          background:
-                            voiceForm.recordingMode ===
-                            'audio'
-                              ? 'rgba(56,189,248,0.14)'
-                              : 'rgba(255,255,255,0.05)',
-                          border:
-                            '1px solid rgba(255,255,255,0.07)'
-                        }}
-                      >
-                        🎙️
-                      </div>
-
-                      <div
-                        style={{
-                          minWidth:
-                            0
-                        }}
-                      >
-                        <div
-                          style={{
-                            fontSize:
-                              '0.9rem',
-                            fontWeight:
-                              700,
-                            marginBottom:
-                              '0.25rem'
-                          }}
-                        >
-                          Audio Only
-                        </div>
-
-                        <div
-                          style={{
-                            fontSize:
-                              '0.7rem',
-                            color:
-                              'var(--text-muted)',
-                            lineHeight:
-                              1.4,
-                            overflowWrap:
-                              'anywhere'
-                          }}
-                        >
-                          Record your voice
-                          without using
-                          the camera.
-                        </div>
-                      </div>
-                    </div>
-
-                    {voiceForm.recordingMode ===
-                      'audio' && (
-                      <div
-                        style={{
-                          position:
-                            'absolute',
-                          top:
-                            '1rem',
-                          right:
-                            '1rem',
-                          fontSize:
-                            '0.65rem',
-                          fontWeight:
-                            700,
-                          color:
-                            '#7dd3fc'
-                        }}
-                      >
-                        SELECTED
-                      </div>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setVoiceForm({
-                        ...voiceForm,
-                        recordingMode:
-                          'video'
-                      })
-                    }
-                    style={{
-                      position:
-                        'relative',
-                      minWidth:
-                        0,
-                      padding:
-                        '1rem 1.1rem',
-                      border:
-                        '1px solid',
-                      borderColor:
-                        voiceForm.recordingMode ===
-                        'video'
-                          ? 'rgba(236,72,153,0.6)'
-                          : 'rgba(255,255,255,0.08)',
-                      borderRadius:
-                        '18px',
-                      background:
-                        voiceForm.recordingMode ===
-                        'video'
-                          ? 'linear-gradient(135deg, rgba(236,72,153,0.12), rgba(168,85,247,0.035))'
-                          : 'rgba(255,255,255,0.025)',
-                      color:
-                        '#fff',
-                      cursor:
-                        'pointer',
-                      textAlign:
-                        'left',
-                      boxSizing:
-                        'border-box',
-                      transition:
-                        'all 0.25s ease',
-                      boxShadow:
-                        voiceForm.recordingMode ===
-                        'video'
-                          ? '0 0 28px rgba(236,72,153,0.08)'
-                          : 'none'
-                    }}
-                  >
-                    <div
-                      style={{
-                        display:
-                          'flex',
-                        alignItems:
-                          'center',
-                        gap:
-                          '0.85rem',
-                        minWidth:
-                          0
-                      }}
-                    >
-                      <div
-                        style={{
-                          width:
-                            '42px',
-                          height:
-                            '42px',
-                          flexShrink:
-                            0,
-                          borderRadius:
-                            '13px',
-                          display:
-                            'flex',
-                          alignItems:
-                            'center',
-                          justifyContent:
-                            'center',
-                          fontSize:
-                            '1.2rem',
-                          background:
-                            voiceForm.recordingMode ===
-                            'video'
-                              ? 'rgba(236,72,153,0.14)'
-                              : 'rgba(255,255,255,0.05)',
-                          border:
-                            '1px solid rgba(255,255,255,0.07)'
-                        }}
-                      >
-                        📹
-                      </div>
-
-                      <div
-                        style={{
-                          minWidth:
-                            0
-                        }}
-                      >
-                        <div
-                          style={{
-                            fontSize:
-                              '0.9rem',
-                            fontWeight:
-                              700,
-                            marginBottom:
-                              '0.25rem'
-                          }}
-                        >
-                          Audio + Video
-                        </div>
-
-                        <div
-                          style={{
-                            fontSize:
-                              '0.7rem',
-                            color:
-                              'var(--text-muted)',
-                            lineHeight:
-                              1.4,
-                            overflowWrap:
-                              'anywhere'
-                          }}
-                        >
-                          Record your voice
-                          and camera during
-                          the interview.
-                        </div>
-                      </div>
-                    </div>
-
-                    {voiceForm.recordingMode ===
-                      'video' && (
-                      <div
-                        style={{
-                          position:
-                            'absolute',
-                          top:
-                            '1rem',
-                          right:
-                            '1rem',
-                          fontSize:
-                            '0.65rem',
-                          fontWeight:
-                            700,
-                          color:
-                            '#f9a8d4'
-                        }}
-                      >
-                        SELECTED
-                      </div>
-                    )}
-                  </button>
-                </div>
-              </div>
+            <div
+              className="form-group"
+              style={{
+                marginTop:
+                  '0.8rem'
+              }}
+            >
+              <label>
+                Recording Mode
+              </label>
 
               <div
                 style={{
-                  marginTop:
+                  display:
+                    'grid',
+                  gridTemplateColumns:
+                    'repeat(2, minmax(0, 1fr))',
+                  gap:
                     '1rem'
                 }}
               >
-                {renderToggleCard({
-                  icon: '🔥',
-                  title:
-                    'Pressure Mode',
-                  description:
-                    'Make the interviewer more challenging',
-                  active:
-                    voiceForm.pressureMode,
-                  onClick: () =>
+                <button
+                  type="button"
+                  onClick={() =>
                     setVoiceForm({
                       ...voiceForm,
-                      pressureMode:
-                        !voiceForm.pressureMode
+                      recordingMode:
+                        'audio'
                     })
-                })}
-              </div>
+                  }
+                  style={{
+                    position:
+                      'relative',
+                    minWidth: 0,
+                    padding:
+                      '1rem 1.1rem',
+                    border:
+                      '1px solid',
+                    borderColor:
+                      voiceForm.recordingMode ===
+                      'audio'
+                        ? 'rgba(22,170,168,0.6)'
+                        : 'rgba(255,255,255,0.08)',
+                    borderRadius:
+                      '18px',
+                    background:
+                      voiceForm.recordingMode ===
+                      'audio'
+                        ? 'rgba(22,170,168,0.08)'
+                        : 'rgba(255,255,255,0.025)',
+                    color:
+                      '#fff',
+                    cursor:
+                      'pointer',
+                    textAlign:
+                      'left',
+                    boxSizing:
+                      'border-box',
+                    transition:
+                      'border-color 0.25s ease, background 0.25s ease',
+                    boxShadow:
+                      'none'
+                  }}
+                >
+                  <div
+                    style={{
+                      display:
+                        'flex',
+                      alignItems:
+                        'center',
+                      gap:
+                        '0.85rem',
+                      minWidth:
+                        0
+                    }}
+                  >
+                    <div
+                      style={{
+                        width:
+                          '42px',
+                        height:
+                          '42px',
+                        flexShrink:
+                          0,
+                        borderRadius:
+                          '13px',
+                        display:
+                          'flex',
+                        alignItems:
+                          'center',
+                        justifyContent:
+                          'center',
+                        fontSize:
+                          '1.2rem',
+                        background:
+                          voiceForm.recordingMode ===
+                          'audio'
+                            ? 'rgba(22,170,168,0.12)'
+                            : 'rgba(255,255,255,0.05)',
+                        border:
+                          '1px solid rgba(255,255,255,0.07)'
+                      }}
+                    >
+                      🎙️
+                    </div>
 
-              <button
-                type="submit"
-                className="btn btn-primary"
-                disabled={loading}
-                style={{
-                  marginTop:
-                    '1.5rem'
-                }}
-              >
-                {loading ? (
-                  <div className="spinner" />
-                ) : (
-                  'Start Voice Interview'
-                )}
-              </button>
-            </form>
-          </div>
-        </div>
+                    <div
+                      style={{
+                        minWidth:
+                          0
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize:
+                            '0.9rem',
+                          fontWeight:
+                            700,
+                          marginBottom:
+                            '0.25rem'
+                        }}
+                      >
+                        Audio Only
+                      </div>
+
+                      <div
+                        style={{
+                          fontSize:
+                            '0.7rem',
+                          color:
+                            'var(--text-muted)',
+                          lineHeight:
+                            1.4,
+                          overflowWrap:
+                            'anywhere'
+                        }}
+                      >
+                        Record your voice
+                        without using
+                        the camera.
+                      </div>
+                    </div>
+                  </div>
+
+                  {voiceForm.recordingMode ===
+                    'audio' && (
+                    <div
+                      style={{
+                        position:
+                          'absolute',
+                        top:
+                          '1rem',
+                        right:
+                          '1rem',
+                        fontSize:
+                          '0.65rem',
+                        fontWeight:
+                          700,
+                        color:
+                          '#16aaa8'
+                      }}
+                    >
+                      SELECTED
+                    </div>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setVoiceForm({
+                      ...voiceForm,
+                      recordingMode:
+                        'video'
+                    })
+                  }
+                  style={{
+                    position:
+                      'relative',
+                    minWidth: 0,
+                    padding:
+                      '1rem 1.1rem',
+                    border:
+                      '1px solid',
+                    borderColor:
+                      voiceForm.recordingMode ===
+                      'video'
+                        ? 'rgba(22,170,168,0.6)'
+                        : 'rgba(255,255,255,0.08)',
+                    borderRadius:
+                      '18px',
+                    background:
+                      voiceForm.recordingMode ===
+                      'video'
+                        ? 'rgba(22,170,168,0.08)'
+                        : 'rgba(255,255,255,0.025)',
+                    color:
+                      '#fff',
+                    cursor:
+                      'pointer',
+                    textAlign:
+                      'left',
+                    boxSizing:
+                      'border-box',
+                    transition:
+                      'border-color 0.25s ease, background 0.25s ease',
+                    boxShadow:
+                      'none'
+                  }}
+                >
+                  <div
+                    style={{
+                      display:
+                        'flex',
+                      alignItems:
+                        'center',
+                      gap:
+                        '0.85rem',
+                      minWidth:
+                        0
+                    }}
+                  >
+                    <div
+                      style={{
+                        width:
+                          '42px',
+                        height:
+                          '42px',
+                        flexShrink:
+                          0,
+                        borderRadius:
+                          '13px',
+                        display:
+                          'flex',
+                        alignItems:
+                          'center',
+                        justifyContent:
+                          'center',
+                        fontSize:
+                          '1.2rem',
+                        background:
+                          voiceForm.recordingMode ===
+                          'video'
+                            ? 'rgba(22,170,168,0.12)'
+                            : 'rgba(255,255,255,0.05)',
+                        border:
+                          '1px solid rgba(255,255,255,0.07)'
+                      }}
+                    >
+                      📹
+                    </div>
+
+                    <div
+                      style={{
+                        minWidth:
+                          0
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize:
+                            '0.9rem',
+                          fontWeight:
+                            700,
+                          marginBottom:
+                            '0.25rem'
+                        }}
+                      >
+                        Audio + Video
+                      </div>
+
+                      <div
+                        style={{
+                          fontSize:
+                            '0.7rem',
+                          color:
+                            'var(--text-muted)',
+                          lineHeight:
+                            1.4,
+                          overflowWrap:
+                            'anywhere'
+                        }}
+                      >
+                        Record your voice
+                        and camera during
+                        the interview.
+                      </div>
+                    </div>
+                  </div>
+
+                  {voiceForm.recordingMode ===
+                    'video' && (
+                    <div
+                      style={{
+                        position:
+                          'absolute',
+                        top:
+                          '1rem',
+                        right:
+                          '1rem',
+                        fontSize:
+                          '0.65rem',
+                        fontWeight:
+                          700,
+                        color:
+                          '#16aaa8'
+                      }}
+                    >
+                      SELECTED
+                    </div>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            <div
+              style={{
+                marginTop:
+                  '1rem'
+              }}
+            >
+              {renderToggleCard({
+                icon: '🔥',
+                title:
+                  'Pressure Mode',
+                description:
+                  'Make the interviewer more challenging',
+                active:
+                  voiceForm.pressureMode,
+                onClick: () =>
+                  setVoiceForm({
+                    ...voiceForm,
+                    pressureMode:
+                      !voiceForm.pressureMode
+                  })
+              })}
+            </div>
+
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={loading}
+              style={{
+                marginTop:
+                  '1.5rem'
+              }}
+            >
+              {loading ? (
+                <div className="spinner" />
+              ) : (
+                'Start Voice Interview'
+              )}
+            </button>
+          </form>
+        </>
+      );
+    };
+
+  return (
+    <div className="setup-page">
+      <div
+        className="setup-card"
+        style={{
+          width: '100%',
+          boxSizing: 'border-box',
+          padding: '2rem',
+          borderRadius: '24px',
+          border:
+            '1px solid rgba(56,189,248,0.22)',
+          background:
+            'rgba(9,16,55,0.35)',
+          backdropFilter:
+            'blur(18px)',
+          WebkitBackdropFilter:
+            'blur(18px)',
+          color: '#fff'
+        }}
+      >
+        {interviewMode ===
+        'voice'
+          ? renderVoiceSetup()
+          : renderTechnicalSetup()}
       </div>
     </div>
   );

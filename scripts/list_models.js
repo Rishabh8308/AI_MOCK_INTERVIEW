@@ -10,9 +10,6 @@ async function listModels() {
   }
   const genAI = new GoogleGenerativeAI(apiKey);
   try {
-    // There isn't a direct listModels in the simple SDK, 
-    // but we can try a simple generation with a known model 
-    // or use the fetch API to hit the discovery endpoint.
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
     const data = await response.json();
     console.log(JSON.stringify(data, null, 2));

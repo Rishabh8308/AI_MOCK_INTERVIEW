@@ -9,6 +9,9 @@ import Chat from './components/Chat';
 import VoiceInterview from './components/VoiceInterview';
 import EvaluationReport from './components/EvaluationReport';
 import Dashboard from './pages/Dashboard';
+import StartJourney from './pages/StartJourney';
+import AboutUs from './pages/AboutUs';
+import InterviewMode from './pages/InterviewMode';
 
 const API_URL =
   import.meta.env.VITE_API_URL || '';
@@ -20,17 +23,20 @@ function App() {
   const [sessionId, setSessionId] = useState(null);
   const [reportData, setReportData] = useState(null);
   const [firstMsg, setFirstMsg] = useState('');
-  const [interviewType, setInterviewType] = useState('Technical');
-  const [pressureMode, setPressureMode] = useState(false);
-  const [assessmentMode, setAssessmentMode] = useState('technical');
-  const [voiceRecordingMode, setVoiceRecordingMode] = useState('audio');
-  const [screenStream, setScreenStream] = useState(null);
+  const [interviewType, setInterviewType] =
+    useState('Technical');
+  const [pressureMode, setPressureMode] =
+    useState(false);
+  const [assessmentMode, setAssessmentMode] =
+    useState('technical');
+  const [voiceRecordingMode, setVoiceRecordingMode] =
+    useState('audio');
+  const [screenStream, setScreenStream] =
+    useState(null);
 
   const [theme, setTheme] = useState(
     localStorage.getItem('theme') || 'dark'
   );
-
-  const [user, setUser] = useState(null);
 
   const getAuthToken = async () => {
     const {
@@ -48,46 +54,6 @@ function App() {
     }
 
     return session.access_token;
-  };
-
-  const handleLogout = async () => {
-    try {
-      if (screenStream) {
-        screenStream
-          .getTracks()
-          .forEach((track) => {
-            try {
-              track.stop();
-            } catch {}
-          });
-
-        setScreenStream(null);
-      }
-
-      const { error } =
-        await supabase.auth.signOut();
-
-      if (error) {
-        throw error;
-      }
-
-      setSessionId(null);
-      setFirstMsg('');
-      setReportData(null);
-      setView('setup');
-      setUser(null);
-
-      navigate('/auth');
-    } catch (error) {
-      console.error(
-        'Logout failed:',
-        error
-      );
-
-      alert(
-        'Failed to log out. Please try again.'
-      );
-    }
   };
 
   useEffect(() => {
@@ -143,7 +109,7 @@ function App() {
     selectedScreenStream
   ) => {
     console.log(
-      '🎙️ Starting voice interview...'
+      'Starting voice interview...'
     );
 
     console.log(
@@ -157,7 +123,7 @@ function App() {
     );
 
     console.log(
-      '🖥️ Received screen stream:',
+      'Received screen stream:',
       selectedScreenStream
     );
 
@@ -176,7 +142,7 @@ function App() {
           'live'
       ) {
         console.error(
-          '❌ Invalid screen stream received.'
+          'Invalid screen stream received.'
         );
 
         alert(
@@ -187,7 +153,7 @@ function App() {
       }
 
       console.log(
-        '✅ Live screen-share track received:',
+        'Live screen-share track received:',
         videoTrack
       );
     }
@@ -486,7 +452,7 @@ function App() {
               );
 
             console.log(
-              '🖥️ Screen sharing stream stopped.'
+              'Screen sharing stream stopped.'
             );
 
             setScreenStream(
@@ -533,6 +499,13 @@ function App() {
   return (
     <Routes>
       <Route
+        path="/"
+        element={
+          <StartJourney />
+        }
+      />
+
+      <Route
         path="/auth"
         element={
           <AuthPage />
@@ -549,7 +522,23 @@ function App() {
       />
 
       <Route
-        path="/"
+        path="/about"
+        element={
+          <AboutUs />
+        }
+      />
+
+      <Route
+        path="/interview-mode"
+        element={
+          <ProtectedRoute>
+            <InterviewMode />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/interview"
         element={
           <ProtectedRoute>
             <>
@@ -591,56 +580,36 @@ function App() {
                 }}
               >
                 {!isInterviewActive && (
-                  <div
-                    className="top-nav"
-                    style={{
-                      display:
-                        'flex',
-
-                      justifyContent:
-                        'space-between',
-
-                      alignItems:
-                        'center',
-
-                      padding:
-                        '1rem'
-                    }}
-                  >
+                  <div className="top-nav">
                     <button
                       type="button"
-                      className="btn btn-secondary"
+                      className="home-button"
                       onClick={() =>
-                        navigate(
-                          '/dashboard'
-                        )
+                        navigate(-1)
                       }
-                      style={{
-                        width:
-                          'auto',
-
-                        padding:
-                          '0.6rem 1.2rem'
-                      }}
+                      aria-label="Go Back"
+                      title="Back"
                     >
-                      Dashboard
-                    </button>
-
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={
-                        handleLogout
-                      }
-                      style={{
-                        width:
-                          'auto',
-
-                        padding:
-                          '0.6rem 1.2rem'
-                      }}
-                    >
-                      Logout
+                      <svg
+  viewBox="0 0 24 24"
+  aria-hidden="true"
+>
+  <path
+    d="M19 12H5"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+  />
+  <path
+    d="M10 7l-5 5 5 5"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  />
+</svg>
                     </button>
                   </div>
                 )}

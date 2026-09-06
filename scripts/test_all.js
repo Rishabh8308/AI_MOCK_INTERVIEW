@@ -6,7 +6,6 @@ async function testAllModels() {
   const apiKey = process.env.GEMINI_API_KEY;
   const genAI = new GoogleGenerativeAI(apiKey);
   
-  // List of standard flash models to try
   const models = [
     "gemini-2.0-flash", 
     "gemini-2.5-flash", 

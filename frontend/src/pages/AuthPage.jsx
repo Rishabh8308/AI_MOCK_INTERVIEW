@@ -1,27 +1,66 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 const AuthPage = () => {
-  const [isSignUp, setIsSignUp] = useState(false);
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  const [isSignUp, setIsSignUp] = useState(
+    searchParams.get('mode') === 'signup'
+  );
+
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [confirmPassword, setConfirmPassword] =
+    useState('');
+
+  const [showPassword, setShowPassword] =
+    useState(false);
+
+  const [showConfirmPassword, setShowConfirmPassword] =
+    useState(false);
+
   const [loading, setLoading] = useState(false);
-  const [resetLoading, setResetLoading] = useState(false);
+  const [resetLoading, setResetLoading] =
+    useState(false);
+
   const [error, setError] = useState(null);
   const [message, setMessage] = useState(null);
 
-  const navigate = useNavigate();
+  useEffect(() => {
+    const mode = searchParams.get('mode');
+
+    if (mode === 'signup') {
+      setIsSignUp(true);
+    }
+
+    if (mode === 'signin') {
+      setIsSignUp(false);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        navigate('/');
+    let mounted = true;
+
+    const checkSession = async () => {
+      const {
+        data: { session }
+      } = await supabase.auth.getSession();
+
+      if (mounted && session) {
+        navigate('/journey', {
+          replace: true
+        });
       }
-    });
+    };
+
+    checkSession();
+
+    return () => {
+      mounted = false;
+    };
   }, [navigate]);
 
   const switchMode = () => {
@@ -30,9 +69,22 @@ const AuthPage = () => {
     setEmail('');
     setPassword('');
     setConfirmPassword('');
+    setUsername('');
     setShowPassword(false);
     setShowConfirmPassword(false);
-    setIsSignUp((prev) => !prev);
+
+    const nextMode = !isSignUp;
+
+    setIsSignUp(nextMode);
+
+    navigate(
+      nextMode
+        ? '/auth?mode=signup'
+        : '/auth?mode=signin',
+      {
+        replace: true
+      }
+    );
   };
 
   const handleAuth = async (e) => {
@@ -44,8 +96,22 @@ const AuthPage = () => {
 
     try {
       if (isSignUp) {
+        if (!username.trim()) {
+          throw new Error(
+            'Please enter a username.'
+          );
+        }
+
+        if (username.trim().length < 3) {
+          throw new Error(
+            'Username must be at least 3 characters long.'
+          );
+        }
+
         if (password !== confirmPassword) {
-          throw new Error('Passwords do not match.');
+          throw new Error(
+            'Passwords do not match.'
+          );
         }
 
         if (password.length < 6) {
@@ -54,25 +120,37 @@ const AuthPage = () => {
           );
         }
 
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            emailRedirectTo: window.location.origin
-          }
-        });
+        const { data, error } =
+          await supabase.auth.signUp({
+            email: email.trim(),
+            password,
+            options: {
+              emailRedirectTo:
+                `${window.location.origin}/journey`,
+              data: {
+                username:
+                  username.trim()
+              }
+            }
+          });
 
         if (error) {
           throw error;
         }
 
-        setMessage(
-          'Account created successfully. Check your email for the confirmation link.'
-        );
+        if (data.session) {
+          navigate('/journey', {
+            replace: true
+          });
+        } else {
+          setMessage(
+            'Account created successfully. Check your email for the confirmation link.'
+          );
+        }
       } else {
         const { error } =
           await supabase.auth.signInWithPassword({
-            email,
+            email: email.trim(),
             password
           });
 
@@ -80,55 +158,63 @@ const AuthPage = () => {
           throw error;
         }
 
-        navigate('/');
+        navigate('/journey', {
+          replace: true
+        });
       }
     } catch (err) {
-      setError(err.message);
+      setError(
+        err.message ||
+          'Something went wrong. Please try again.'
+      );
     } finally {
       setLoading(false);
     }
   };
 
   const handleForgotPassword = async () => {
-  setError(null);
-  setMessage(null);
+    setError(null);
+    setMessage(null);
 
-  if (!email.trim()) {
-    setError(
-      'Enter your email address first, then click Forgot password.'
-    );
-    return;
-  }
-
-  setResetLoading(true);
-
-  try {
-    const { error } =
-      await supabase.auth.resetPasswordForEmail(
-        email.trim(),
-        {
-          redirectTo:
-            `${window.location.origin}/auth`
-        }
+    if (!email.trim()) {
+      setError(
+        'Enter your email address first, then click Forgot password.'
       );
-
-    if (error) {
-      throw error;
+      return;
     }
 
-    setMessage(
-      'Password reset email sent. Check your inbox.'
-    );
+    setResetLoading(true);
 
-    setTimeout(() => {
-      setMessage(null);
-    }, 4000);
-  } catch (err) {
-    setError(err.message);
-  } finally {
-    setResetLoading(false);
-  }
-};
+    try {
+      const { error } =
+        await supabase.auth.resetPasswordForEmail(
+          email.trim(),
+          {
+            redirectTo:
+              `${window.location.origin}/auth`
+          }
+        );
+
+      if (error) {
+        throw error;
+      }
+
+      setMessage(
+        'Password reset email sent. Check your inbox.'
+      );
+
+      setTimeout(() => {
+        setMessage(null);
+      }, 4000);
+    } catch (err) {
+      setError(
+        err.message ||
+          'Unable to send password reset email.'
+      );
+    } finally {
+      setResetLoading(false);
+    }
+  };
 
   return (
     <>
@@ -143,29 +229,17 @@ const AuthPage = () => {
           box-sizing: border-box;
           position: relative;
           overflow: hidden;
-          background:
-            radial-gradient(
-              circle at 50% 45%,
-              rgba(30, 58, 110, 0.38) 0%,
-              rgba(7, 21, 47, 0.72) 35%,
-              rgba(2, 6, 23, 1) 75%
-            );
+          background: #0b0d0f;
         }
 
         .auth-page::before {
           content: '';
           position: absolute;
-          width: 650px;
-          height: 650px;
+          width: 520px;
+          height: 520px;
           border-radius: 50%;
-          background:
-            radial-gradient(
-              circle,
-              rgba(124, 58, 237, 0.18),
-              rgba(56, 189, 248, 0.08) 45%,
-              transparent 70%
-            );
-          filter: blur(35px);
+          background: rgba(39, 199, 176, 0.045);
+          filter: blur(80px);
           top: 50%;
           left: 50%;
           transform: translate(-50%, -50%);
@@ -175,16 +249,13 @@ const AuthPage = () => {
         .auth-page::after {
           content: '';
           position: absolute;
-          width: 320px;
-          height: 320px;
+          width: 430px;
+          height: 430px;
           border-radius: 50%;
-          border: 1px solid rgba(56, 189, 248, 0.08);
+          border: 1px solid rgba(39, 199, 176, 0.08);
           top: 50%;
           left: 50%;
           transform: translate(-50%, -50%);
-          box-shadow:
-            0 0 80px rgba(56, 189, 248, 0.06),
-            inset 0 0 60px rgba(124, 58, 237, 0.05);
           pointer-events: none;
         }
 
@@ -224,22 +295,17 @@ const AuthPage = () => {
           background:
             radial-gradient(
               circle at 35% 25%,
-              rgba(30, 58, 110, 0.5),
+              rgba(39, 199, 176, 0.08),
               transparent 45%
             ),
-            linear-gradient(
-              145deg,
-              rgba(15, 31, 61, 0.92),
-              rgba(2, 6, 23, 0.96)
-            );
+            #111516;
 
-          border: 1px solid rgba(56, 189, 248, 0.28);
+          border: 1px solid rgba(39, 199, 176, 0.22);
 
           box-shadow:
-            0 0 25px rgba(56, 189, 248, 0.12),
-            0 0 65px rgba(124, 58, 237, 0.14),
+            0 0 35px rgba(39, 199, 176, 0.07),
             0 25px 70px rgba(0, 0, 0, 0.55),
-            inset 0 0 45px rgba(124, 58, 237, 0.06);
+            inset 0 0 45px rgba(39, 199, 176, 0.025);
         }
 
         .auth-face::before {
@@ -247,10 +313,7 @@ const AuthPage = () => {
           position: absolute;
           inset: 12px;
           border-radius: 50%;
-          border: 1px solid rgba(56, 189, 248, 0.14);
-          box-shadow:
-            inset 0 0 25px rgba(56, 189, 248, 0.04),
-            0 0 20px rgba(124, 58, 237, 0.04);
+          border: 1px solid rgba(39, 199, 176, 0.09);
           pointer-events: none;
         }
 
@@ -259,7 +322,7 @@ const AuthPage = () => {
           position: absolute;
           inset: 24px;
           border-radius: 50%;
-          border: 1px solid rgba(124, 58, 237, 0.12);
+          border: 1px solid rgba(255, 255, 255, 0.035);
           pointer-events: none;
         }
 
@@ -277,28 +340,28 @@ const AuthPage = () => {
 
         .auth-heading {
           margin: 0;
+          color: #f2f4f4;
+          font-family: Outfit, Inter, sans-serif;
           font-size: 2.7rem;
           font-weight: 800;
-          letter-spacing: -0.04em;
+          letter-spacing: -0.05em;
           line-height: 1;
+        }
 
-          background:
-            linear-gradient(
-              135deg,
-              #38bdf8,
-              #7c3aed 55%,
-              #db2777
-            );
-
-          -webkit-background-clip: text;
-          background-clip: text;
-          -webkit-text-fill-color: transparent;
+        .auth-heading::after {
+          content: '';
+          display: block;
+          width: 32px;
+          height: 2px;
+          margin: 0.7rem auto 0;
+          background: #27c7b0;
+          border-radius: 2px;
         }
 
         .auth-subheading {
-          margin: 0.65rem 0 1.7rem;
-          color: #94a3b8;
-          font-size: 0.85rem;
+          margin: 0.75rem 0 1.7rem;
+          color: #8c969a;
+          font-size: 0.82rem;
           font-weight: 500;
         }
 
@@ -321,53 +384,26 @@ const AuthPage = () => {
           width: 100%;
           height: 48px;
           box-sizing: border-box;
-          border-radius: 12px;
-
-          border: 1px solid rgba(56, 189, 248, 0.18);
-
+          border-radius: 10px;
+          border: 1px solid rgba(255, 255, 255, 0.09);
           outline: none;
-
           padding: 0 1rem;
-
-          background:
-            linear-gradient(
-              145deg,
-              rgba(15, 31, 61, 0.9),
-              rgba(7, 21, 47, 0.92)
-            );
-
-          color: #e2e8f0;
-
+          background: #181d1f;
+          color: #e8ecec;
           font-size: 0.82rem;
-
-          box-shadow:
-            inset 0 0 15px rgba(2, 6, 23, 0.45),
-            0 0 10px rgba(56, 189, 248, 0.03);
 
           transition:
             border-color 0.2s ease,
-            box-shadow 0.2s ease,
             background 0.2s ease;
         }
 
         .auth-input:focus {
-          border-color: rgba(56, 189, 248, 0.65);
-
-          background:
-            linear-gradient(
-              145deg,
-              rgba(15, 31, 61, 0.98),
-              rgba(7, 21, 47, 0.98)
-            );
-
-          box-shadow:
-            0 0 0 2px rgba(56, 189, 248, 0.08),
-            0 0 18px rgba(56, 189, 248, 0.12),
-            inset 0 0 15px rgba(124, 58, 237, 0.05);
+          border-color: rgba(39, 199, 176, 0.55);
+          background: #1a2021;
         }
 
         .auth-input::placeholder {
-          color: #64748b;
+          color: #687275;
         }
 
         .password-toggle {
@@ -379,20 +415,20 @@ const AuthPage = () => {
           height: 32px;
           border: none;
           background: transparent;
-          color: #64748b;
+          color: #707b7f;
           display: flex;
           align-items: center;
           justify-content: center;
           cursor: pointer;
-          border-radius: 8px;
+          border-radius: 7px;
           transition:
             color 0.2s ease,
             background 0.2s ease;
         }
 
         .password-toggle:hover {
-          color: #38bdf8;
-          background: rgba(56, 189, 248, 0.08);
+          color: #62d6c5;
+          background: rgba(39, 199, 176, 0.07);
         }
 
         .password-toggle svg {
@@ -406,8 +442,8 @@ const AuthPage = () => {
           align-items: center;
           justify-content: space-between;
           margin: 0.05rem 0 0.35rem;
-          color: #64748b;
-          font-size: 0.7rem;
+          color: #707b7f;
+          font-size: 0.68rem;
         }
 
         .remember {
@@ -425,11 +461,8 @@ const AuthPage = () => {
           height: 13px;
           margin: 0;
           border-radius: 20px;
-
-          background: #0f1f3d;
-
-          border: 1px solid rgba(56, 189, 248, 0.18);
-
+          background: #202628;
+          border: 1px solid rgba(255, 255, 255, 0.1);
           position: relative;
           cursor: pointer;
         }
@@ -442,7 +475,7 @@ const AuthPage = () => {
           border-radius: 50%;
           left: 2px;
           top: 1px;
-          background: #64748b;
+          background: #687275;
           transition:
             transform 0.2s ease,
             background 0.2s ease;
@@ -450,27 +483,21 @@ const AuthPage = () => {
 
         .remember input:checked::before {
           transform: translateX(10px);
-          background: #38bdf8;
-          box-shadow:
-            0 0 8px rgba(56, 189, 248, 0.7);
+          background: #27c7b0;
         }
 
         .forgot {
-          color: #64748b;
+          color: #707b7f;
           border: none;
           background: transparent;
           padding: 0;
-          font-size: 0.7rem;
+          font-size: 0.68rem;
           cursor: pointer;
-          transition:
-            color 0.2s ease,
-            text-shadow 0.2s ease;
+          transition: color 0.2s ease;
         }
 
         .forgot:hover {
-          color: #38bdf8;
-          text-shadow:
-            0 0 8px rgba(56, 189, 248, 0.4);
+          color: #62d6c5;
         }
 
         .forgot:disabled {
@@ -481,134 +508,85 @@ const AuthPage = () => {
         .auth-submit {
           width: 100%;
           height: 48px;
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          border-radius: 13px;
-
-          background:
-            linear-gradient(
-              135deg,
-              #7c3aed,
-              #db2777
-            );
-
-          color: #ffffff;
-
-          font-size: 0.78rem;
+          border: 1px solid #27c7b0;
+          border-radius: 10px;
+          background: #27c7b0;
+          color: #071211;
+          font-size: 0.76rem;
           font-weight: 800;
-          letter-spacing: 0.1em;
-
+          letter-spacing: 0.08em;
           cursor: pointer;
 
-          box-shadow:
-            0 0 18px rgba(124, 58, 237, 0.25),
-            0 0 30px rgba(219, 39, 119, 0.12);
-
           transition:
-            transform 0.2s ease,
-            box-shadow 0.2s ease,
-            filter 0.2s ease;
+            background 0.2s ease,
+            border-color 0.2s ease,
+            transform 0.2s ease;
         }
 
-        .auth-submit:hover {
+        .auth-submit:hover:not(:disabled) {
+          background: #31d4bd;
+          border-color: #31d4bd;
           transform: translateY(-2px);
-
-          box-shadow:
-            0 0 25px rgba(124, 58, 237, 0.38),
-            0 0 40px rgba(219, 39, 119, 0.2);
-
-          filter: brightness(1.08);
         }
 
-        .auth-submit:active {
+        .auth-submit:active:not(:disabled) {
           transform: translateY(0);
         }
 
         .auth-submit:disabled {
           cursor: not-allowed;
-          opacity: 0.65;
-          transform: none;
+          opacity: 0.6;
         }
 
         .auth-switch {
           margin: 1.2rem 0 0;
-          color: #64748b;
+          color: #707b7f;
           font-size: 0.72rem;
         }
 
         .auth-switch button {
           border: none;
           background: transparent;
-
-          color: #38bdf8;
-
-          font-weight: 800;
-
+          color: #62d6c5;
+          font-weight: 700;
           cursor: pointer;
-
           padding: 0;
-
           margin-left: 0.25rem;
-
-          transition:
-            color 0.2s ease,
-            text-shadow 0.2s ease;
+          transition: color 0.2s ease;
         }
 
         .auth-switch button:hover {
-          color: #7dd3fc;
-
-          text-shadow:
-            0 0 10px rgba(56, 189, 248, 0.5);
+          color: #8ae5d7;
         }
 
         .auth-error,
         .auth-message {
-          border-radius: 10px;
+          border-radius: 9px;
           padding: 0.65rem 0.8rem;
           margin-bottom: 0.7rem;
-          font-size: 0.7rem;
-          line-height: 1.35;
+          font-size: 0.68rem;
+          line-height: 1.4;
         }
 
         .auth-error {
-          color: #fda4af;
-
-          background:
-            rgba(190, 24, 93, 0.08);
-
-          border:
-            1px solid rgba(219, 39, 119, 0.2);
-
-          box-shadow:
-            0 0 15px rgba(219, 39, 119, 0.05);
+          color: #f0a0a0;
+          background: rgba(239, 107, 107, 0.07);
+          border: 1px solid rgba(239, 107, 107, 0.18);
         }
 
         .auth-message {
-          color: #67e8f9;
-
-          background:
-            rgba(14, 116, 144, 0.08);
-
-          border:
-            1px solid rgba(56, 189, 248, 0.2);
-
-          box-shadow:
-            0 0 15px rgba(56, 189, 248, 0.05);
+          color: #7ce0d0;
+          background: rgba(39, 199, 176, 0.06);
+          border: 1px solid rgba(39, 199, 176, 0.18);
         }
 
         .auth-spinner {
           width: 17px;
           height: 17px;
           border-radius: 50%;
-
-          border:
-            2px solid rgba(255, 255, 255, 0.18);
-
-          border-top-color: #38bdf8;
-
-          animation:
-            authSpin 0.7s linear infinite;
-
+          border: 2px solid rgba(7, 18, 17, 0.25);
+          border-top-color: #071211;
+          animation: authSpin 0.7s linear infinite;
           margin: 0 auto;
         }
 
@@ -772,9 +750,7 @@ const AuthPage = () => {
 
                   <div className="auth-options">
                     <label className="remember">
-                      <input
-                        type="checkbox"
-                      />
+                      <input type="checkbox" />
                       <span>
                         Remember me
                       </span>
@@ -847,6 +823,22 @@ const AuthPage = () => {
                   className="auth-form"
                   onSubmit={handleAuth}
                 >
+                  <input
+                    className="auth-input"
+                    type="text"
+                    value={username}
+                    onChange={(e) =>
+                      setUsername(
+                        e.target.value
+                      )
+                    }
+                    placeholder="Username"
+                    autoComplete="username"
+                    minLength={3}
+                    maxLength={30}
+                    required
+                  />
+
                   <input
                     className="auth-input"
                     type="email"
