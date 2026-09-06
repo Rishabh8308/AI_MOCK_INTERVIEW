@@ -5,6 +5,7 @@ import { cpp } from '@codemirror/lang-cpp';
 import { java } from '@codemirror/lang-java';
 import { python } from '@codemirror/lang-python';
 import { useVideoRecorder } from '../hooks/useVideoRecorder';
+import { supabase } from '../lib/supabaseClient';
 
 const Chat = ({
   sessionId,
@@ -47,37 +48,15 @@ const Chat = ({
   const [isEditorActive, setIsEditorActive] =
     useState(false);
 
-  /*
-   * =========================================================
-   * CHEAT / TAB / WINDOW / FULLSCREEN WARNING
-   * =========================================================
-   */
-
   const [cheatWarning, setCheatWarning] =
     useState(false);
 
   const visibilityViolationCountRef =
     useRef(0);
 
-  /*
-   * true means the candidate has currently
-   * left the interview window/page.
-   *
-   * This prevents blur + visibilitychange
-   * from being counted as two violations.
-   */
   const wasPageHiddenRef =
     useRef(false);
 
-  /*
-   * Used while requesting fullscreen.
-   *
-   * The fullscreen request happens before
-   * the interview actually starts, but this
-   * flag provides an additional protection
-   * against counting the browser's fullscreen
-   * UI as cheating.
-   */
   const fullscreenRequestPendingRef =
     useRef(false);
 
@@ -93,10 +72,6 @@ const Chat = ({
   const messagesRef =
     useRef(messages);
 
-  /*
-   * Keep messagesRef synchronized
-   * with the latest messages.
-   */
   useEffect(() => {
     messagesRef.current =
       messages;
@@ -125,11 +100,21 @@ const Chat = ({
   const [stream, setStream] =
     useState(null);
 
-  /*
-   * =========================================================
-   * HELPER: SHOULD IGNORE CHEAT DETECTION
-   * =========================================================
-   */
+  const getAuthToken = async () => {
+    const {
+      data: { session }
+    } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      alert(
+        'Your session has expired. Please sign in again.'
+      );
+
+      return null;
+    }
+
+    return session.access_token;
+  };
 
   const shouldIgnoreCheatDetection =
     () => {
@@ -139,10 +124,6 @@ const Chat = ({
         return true;
       }
 
-      /*
-       * Ignore browser fullscreen UI
-       * while fullscreen is being requested.
-       */
       if (
         fullscreenRequestPendingRef.current
       ) {
@@ -151,12 +132,6 @@ const Chat = ({
 
       return false;
     };
-
-  /*
-   * =========================================================
-   * TTS TOGGLE
-   * =========================================================
-   */
 
   const handleToggleTTS = () => {
     const newState =
@@ -185,70 +160,22 @@ const Chat = ({
     }
   };
 
-  /*
-   * =========================================================
-   * WHITEBOARD
-   * =========================================================
-   */
-
   const toggleWhiteboard = () => {
     setIsEditorActive(
       !isEditorActive
     );
   };
 
-  /*
-   * =========================================================
-   * CHEAT DETECTION
-   * =========================================================
-   *
-   * Detects:
-   *
-   * 1. Switching Chrome tabs
-   * 2. Switching to another application
-   * 3. Alt + Tab
-   * 4. Clicking another window
-   * 5. Minimizing the browser
-   * 6. Exiting fullscreen
-   *
-   * First violation:
-   * Candidate leaves and returns.
-   * A warning is shown.
-   *
-   * Second violation:
-   * Candidate leaves and returns again.
-   * Interview automatically ends.
-   *
-   * IMPORTANT:
-   * blur + visibilitychange are treated
-   * as ONE violation.
-   */
-
   useEffect(() => {
-    /*
-     * =======================================================
-     * MARK INTERVIEW AS AWAY
-     * =======================================================
-     */
-
     const markPageAsAway = (
       source
     ) => {
-      /*
-       * Ignore if interview is already
-       * ending.
-       */
       if (
         endingInterviewRef.current
       ) {
         return;
       }
 
-      /*
-       * Ignore the temporary focus loss
-       * caused by the browser fullscreen
-       * request UI.
-       */
       if (
         fullscreenRequestPendingRef.current
       ) {
@@ -259,28 +186,12 @@ const Chat = ({
         return;
       }
 
-      /*
-       * Don't monitor before interview
-       * has actually started.
-       */
       if (
         !interviewStartedRef.current
       ) {
         return;
       }
 
-      /*
-       * Already marked as away.
-       *
-       * This is critical because when the
-       * user switches apps we may receive:
-       *
-       * blur
-       * +
-       * visibilitychange
-       *
-       * We only want ONE violation.
-       */
       if (
         wasPageHiddenRef.current
       ) {
@@ -294,12 +205,6 @@ const Chat = ({
         `⚠️ Interview lost focus (${source}).`
       );
     };
-
-    /*
-     * =======================================================
-     * PROCESS RETURN TO INTERVIEW
-     * =======================================================
-     */
 
     const processReturnToInterview =
       () => {
@@ -315,29 +220,18 @@ const Chat = ({
           return;
         }
 
-        /*
-         * Candidate never left.
-         */
         if (
           !wasPageHiddenRef.current
         ) {
           return;
         }
 
-        /*
-         * If document is still hidden,
-         * don't process the return yet.
-         */
         if (
           document.hidden
         ) {
           return;
         }
 
-        /*
-         * Mark candidate as back
-         * inside the interview.
-         */
         wasPageHiddenRef.current =
           false;
 
@@ -351,12 +245,6 @@ const Chat = ({
           '⚠️ Tab/window/fullscreen violation:',
           violationCount
         );
-
-        /*
-         * ===================================================
-         * FIRST VIOLATION
-         * ===================================================
-         */
 
         if (
           violationCount === 1
@@ -372,29 +260,12 @@ const Chat = ({
           return;
         }
 
-        /*
-         * ===================================================
-         * SECOND VIOLATION
-         * ===================================================
-         */
-
         if (
           violationCount >= 2
         ) {
           console.log(
             '🛑 Second tab/window/fullscreen violation. Ending interview.'
           );
-
-          /*
-           * IMPORTANT:
-           *
-           * Do NOT set
-           * endingInterviewRef.current
-           * here.
-           *
-           * handleEndInterview()
-           * will set it.
-           */
 
           setCheatWarning(
             false
@@ -408,18 +279,8 @@ const Chat = ({
         }
       };
 
-    /*
-     * =======================================================
-     * VISIBILITY CHANGE
-     * =======================================================
-     */
-
     const handleVisibilityChange =
       () => {
-        /*
-         * Ignore visibility events while
-         * the browser fullscreen UI is active.
-         */
         if (
           fullscreenRequestPendingRef.current
         ) {
@@ -430,9 +291,6 @@ const Chat = ({
           return;
         }
 
-        /*
-         * Page became hidden.
-         */
         if (
           document.hidden
         ) {
@@ -443,27 +301,10 @@ const Chat = ({
           return;
         }
 
-        /*
-         * Page became visible again.
-         *
-         * Small delay gives the browser
-         * time to finish updating focus/
-         * visibility state.
-         */
         setTimeout(() => {
           processReturnToInterview();
         }, 100);
       };
-
-    /*
-     * =======================================================
-     * WINDOW BLUR
-     * =======================================================
-     *
-     * Fires when the browser window loses
-     * focus, including switching to another
-     * application.
-     */
 
     const handleWindowBlur =
       () => {
@@ -482,52 +323,21 @@ const Chat = ({
         );
       };
 
-    /*
-     * =======================================================
-     * WINDOW FOCUS
-     * =======================================================
-     *
-     * Fires when the candidate returns
-     * to the browser window.
-     */
-
     const handleWindowFocus =
       () => {
-        /*
-         * Ignore focus events during
-         * fullscreen request.
-         */
         if (
           fullscreenRequestPendingRef.current
         ) {
           return;
         }
 
-        /*
-         * Give the browser a moment to
-         * update document.hidden.
-         */
         setTimeout(() => {
           processReturnToInterview();
         }, 100);
       };
 
-    /*
-     * =======================================================
-     * FULLSCREEN CHANGE
-     * =======================================================
-     *
-     * Once the interview has started,
-     * leaving fullscreen is treated as
-     * leaving the interview environment.
-     */
-
     const handleFullscreenChange =
       () => {
-        /*
-         * Ignore the initial fullscreen
-         * request / browser UI.
-         */
         if (
           fullscreenRequestPendingRef.current
         ) {
@@ -538,29 +348,18 @@ const Chat = ({
           return;
         }
 
-        /*
-         * Don't monitor before the
-         * interview has started.
-         */
         if (
           !interviewStartedRef.current
         ) {
           return;
         }
 
-        /*
-         * Don't monitor while interview
-         * is ending.
-         */
         if (
           endingInterviewRef.current
         ) {
           return;
         }
 
-        /*
-         * Fullscreen was exited.
-         */
         if (
           !document.fullscreenElement
         ) {
@@ -568,40 +367,15 @@ const Chat = ({
             '⚠️ Candidate exited fullscreen.'
           );
 
-          /*
-           * Treat fullscreen exit as the
-           * same "away" state as blur.
-           *
-           * This also prevents a blur event
-           * immediately following fullscreen
-           * exit from creating a second
-           * violation.
-           */
           markPageAsAway(
             'fullscreen exit'
           );
 
-          /*
-           * Unlike visibilitychange,
-           * leaving fullscreen does not
-           * necessarily make document.hidden
-           * become true.
-           *
-           * Therefore process the violation
-           * shortly after marking the page
-           * as away.
-           */
           setTimeout(() => {
             processReturnToInterview();
           }, 100);
         }
       };
-
-    /*
-     * =======================================================
-     * ADD EVENT LISTENERS
-     * =======================================================
-     */
 
     document.addEventListener(
       'visibilitychange',
@@ -622,12 +396,6 @@ const Chat = ({
       'focus',
       handleWindowFocus
     );
-
-    /*
-     * =======================================================
-     * CLEANUP
-     * =======================================================
-     */
 
     return () => {
       document.removeEventListener(
@@ -651,12 +419,6 @@ const Chat = ({
       );
     };
   }, []);
-
-  /*
-   * =========================================================
-   * INITIALIZE WEBCAM FOR LIVE MODE
-   * =========================================================
-   */
 
   useEffect(() => {
     if (!liveMode) {
@@ -688,9 +450,6 @@ const Chat = ({
               s;
           }
 
-          /*
-           * Start recording the raw stream.
-           */
           startRecording(s);
         }
       } catch (err) {
@@ -715,21 +474,11 @@ const Chat = ({
     };
   }, [liveMode]);
 
-  /*
-   * =========================================================
-   * MARK INTERVIEW AS STARTED
-   * =========================================================
-   */
-
   useEffect(() => {
     if (!initialMessage) {
       return;
     }
 
-    /*
-     * Give the initial render a moment to
-     * complete before enabling cheat detection.
-     */
     const timer =
       setTimeout(() => {
         interviewStartedRef.current =
@@ -739,19 +488,6 @@ const Chat = ({
           '✅ Chat interview cheat detection is active.'
         );
 
-        /*
-         * Safety check:
-         *
-         * The interview should already be
-         * fullscreen because Setup.jsx
-         * requests fullscreen before calling
-         * onStart().
-         *
-         * If fullscreen is somehow not active,
-         * we log it here. The fullscreenchange
-         * listener will catch an exit once
-         * monitoring is active.
-         */
         if (
           !document.fullscreenElement
         ) {
@@ -765,12 +501,6 @@ const Chat = ({
       clearTimeout(timer);
     };
   }, [initialMessage]);
-
-  /*
-   * =========================================================
-   * SPEECH RECOGNITION
-   * =========================================================
-   */
 
   useEffect(() => {
     if (!liveMode) {
@@ -830,12 +560,6 @@ const Chat = ({
     };
   }, [liveMode]);
 
-  /*
-   * =========================================================
-   * TEXT TO SPEECH FOR AI MESSAGES
-   * =========================================================
-   */
-
   useEffect(() => {
     if (
       ttsEnabled &&
@@ -863,10 +587,6 @@ const Chat = ({
     window.speechSynthesis.cancel();
 
     try {
-      /*
-       * Remove formatting and evaluation
-       * blocks for speech.
-       */
       const cleanText =
         String(text)
           .split('\n')
@@ -913,12 +633,6 @@ const Chat = ({
     }
   };
 
-  /*
-   * =========================================================
-   * TOGGLE SPEECH RECORDING
-   * =========================================================
-   */
-
   const toggleRecording = () => {
     if (isRecording) {
       recognitionRef.current?.stop();
@@ -932,12 +646,6 @@ const Chat = ({
       }
     }
   };
-
-  /*
-   * =========================================================
-   * SEND MESSAGE
-   * =========================================================
-   */
 
   const handleSend = async (e) => {
     if (e) {
@@ -973,16 +681,19 @@ const Chat = ({
 
     setInputVal('');
 
-    /*
-     * Intentionally not clearing Code
-     * editor so they can iterate.
-     */
-
     setLoading(true);
 
     setTimeLeft(120);
 
     try {
+      const token =
+        await getAuthToken();
+
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+
       const resp =
         await fetch(
           `${
@@ -993,7 +704,9 @@ const Chat = ({
             method: 'POST',
             headers: {
               'Content-Type':
-                'application/json'
+                'application/json',
+              Authorization:
+                `Bearer ${token}`
             },
             body: JSON.stringify({
               sessionId,
@@ -1037,12 +750,6 @@ const Chat = ({
     setLoading(false);
   };
 
-  /*
-   * =========================================================
-   * TIMER COUNTDOWN
-   * =========================================================
-   */
-
   useEffect(() => {
     if (
       !pressureMode ||
@@ -1072,24 +779,12 @@ const Chat = ({
     loading
   ]);
 
-  /*
-   * =========================================================
-   * AUTO SCROLL
-   * =========================================================
-   */
-
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop =
         scrollRef.current.scrollHeight;
     }
   }, [messages]);
-
-  /*
-   * =========================================================
-   * LIVE CODE EXECUTION
-   * =========================================================
-   */
 
   const [
     executionOutput,
@@ -1135,10 +830,6 @@ const Chat = ({
     };
 
     try {
-      /*
-       * Execute code using new Function
-       * for a basic browser sandbox.
-       */
       const func =
         new Function(codeVal);
 
@@ -1157,12 +848,6 @@ const Chat = ({
         originalLog;
     }
   };
-
-  /*
-   * =========================================================
-   * RENDER AI MESSAGE
-   * =========================================================
-   */
 
   const renderAiMessage =
     (txt) => {
@@ -1227,12 +912,6 @@ const Chat = ({
       );
     };
 
-  /*
-   * =========================================================
-   * FORMAT TIMER
-   * =========================================================
-   */
-
   const formatTime = (
     secs
   ) => {
@@ -1251,30 +930,14 @@ const Chat = ({
     }${s}`;
   };
 
-  /*
-   * =========================================================
-   * END INTERVIEW
-   * =========================================================
-   */
-
   const handleEndInterview =
     async () => {
-      /*
-       * Prevent multiple end calls.
-       */
       if (
         endingInterviewRef.current
       ) {
         return;
       }
 
-      /*
-       * Set this flag HERE.
-       *
-       * The cheat detector deliberately
-       * does not set it before calling
-       * this function.
-       */
       endingInterviewRef.current =
         true;
 
@@ -1285,32 +948,18 @@ const Chat = ({
       setLoading(true);
 
       try {
-        /*
-         * Stop speech recognition.
-         */
         try {
           recognitionRef.current?.stop();
         } catch {}
 
-        /*
-         * Stop AI speech.
-         */
         if (
           window.speechSynthesis
         ) {
           window.speechSynthesis.cancel();
         }
 
-        /*
-         * Stop recording.
-         */
         stopRecording();
 
-        /*
-         * Small delay to ensure
-         * MediaRecorder has finished
-         * flushing final chunks.
-         */
         await new Promise(
           (resolve) =>
             setTimeout(
@@ -1319,20 +968,12 @@ const Chat = ({
             )
         );
 
-        /*
-         * Upload recording only
-         * in Live Mode.
-         */
         if (liveMode) {
           await uploadRecording(
             sessionId
           );
         }
 
-        /*
-         * Send latest messages to
-         * parent component.
-         */
         await onEndInterview(
           messagesRef.current
         );
@@ -1342,35 +983,17 @@ const Chat = ({
           err
         );
 
-        /*
-         * Continue to report even if
-         * recording upload fails.
-         */
         await onEndInterview(
           messagesRef.current
         );
       }
     };
 
-  /*
-   * Keep latest end function available
-   * to cheat detection.
-   */
   endInterviewRef.current =
     handleEndInterview;
 
-  /*
-   * =========================================================
-   * UI
-   * =========================================================
-   */
-
   return (
     <>
-      {/* =====================================================
-          CHEAT WARNING MODAL
-          ===================================================== */}
-
       {cheatWarning && (
         <div
           style={{
@@ -1500,16 +1123,7 @@ const Chat = ({
             : 'single'
         }`}
       >
-        {/* ===================================================
-            VIEW 1: CHAT VIEW
-            =================================================== */}
-
         <div className="glass-panel chat-container">
-
-          {/* =================================================
-              VIDEO PROCTORING PREVIEW
-              ================================================= */}
-
           {liveMode && (
             <div
               className="video-proctoring-wrapper"
@@ -1539,10 +1153,6 @@ const Chat = ({
             </div>
           )}
 
-          {/* =================================================
-              PRESSURE MODE TIMER
-              ================================================= */}
-
           {pressureMode && (
             <div className="timer-bar">
               ⏱️ Auto-Submit In:{' '}
@@ -1563,10 +1173,6 @@ const Chat = ({
               </span>
             </div>
           )}
-
-          {/* =================================================
-              CHAT HISTORY
-              ================================================= */}
 
           <div
             className="chat-history"
@@ -1606,10 +1212,6 @@ const Chat = ({
               </div>
             )}
           </div>
-
-          {/* =================================================
-              CHAT INPUT
-              ================================================= */}
 
           <form
             onSubmit={
@@ -1651,10 +1253,6 @@ const Chat = ({
               </div>
             )}
 
-            {/* =================================================
-                TTS BUTTON
-                ================================================= */}
-
             <button
               type="button"
               className="btn-toggle-tts"
@@ -1691,10 +1289,6 @@ const Chat = ({
                 ? '🔊'
                 : '🔇'}
             </button>
-
-            {/* =================================================
-                WHITEBOARD BUTTON
-                ================================================= */}
 
             {canShowEditor && (
               <button
@@ -1763,10 +1357,6 @@ const Chat = ({
               Send
             </button>
 
-            {/* =================================================
-                END SESSION
-                ================================================= */}
-
             <button
               type="button"
               className="btn btn-danger"
@@ -1788,13 +1378,8 @@ const Chat = ({
           </form>
         </div>
 
-        {/* ===================================================
-            VIEW 2: CODE EDITOR
-            =================================================== */}
-
         {isEditorActive && (
           <div className="glass-panel editor-container">
-
             <div
               style={{
                 display:
@@ -1952,10 +1537,6 @@ const Chat = ({
                 }
               />
             </div>
-
-            {/* =================================================
-                EXECUTION OUTPUT
-                ================================================= */}
 
             <div className="execution-output">
               <div className="output-header">

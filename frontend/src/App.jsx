@@ -8,6 +8,7 @@ import Setup from './components/Setup';
 import Chat from './components/Chat';
 import VoiceInterview from './components/VoiceInterview';
 import EvaluationReport from './components/EvaluationReport';
+import Dashboard from './pages/Dashboard';
 
 const API_URL =
   import.meta.env.VITE_API_URL || '';
@@ -15,41 +16,39 @@ const API_URL =
 function App() {
   const navigate = useNavigate();
 
-  const [view, setView] =
-    useState('setup');
+  const [view, setView] = useState('setup');
+  const [sessionId, setSessionId] = useState(null);
+  const [reportData, setReportData] = useState(null);
+  const [firstMsg, setFirstMsg] = useState('');
+  const [interviewType, setInterviewType] = useState('Technical');
+  const [pressureMode, setPressureMode] = useState(false);
+  const [assessmentMode, setAssessmentMode] = useState('technical');
+  const [voiceRecordingMode, setVoiceRecordingMode] = useState('audio');
+  const [screenStream, setScreenStream] = useState(null);
 
-  const [sessionId, setSessionId] =
-    useState(null);
+  const [theme, setTheme] = useState(
+    localStorage.getItem('theme') || 'dark'
+  );
 
-  const [reportData, setReportData] =
-    useState(null);
+  const [user, setUser] = useState(null);
 
-  const [firstMsg, setFirstMsg] =
-    useState('');
+  const getAuthToken = async () => {
+    const {
+      data: { session }
+    } = await supabase.auth.getSession();
 
-  const [interviewType, setInterviewType] =
-    useState('Technical');
+    if (!session?.access_token) {
+      alert(
+        'Your session has expired. Please sign in again.'
+      );
 
-  const [pressureMode, setPressureMode] =
-    useState(false);
+      navigate('/auth');
 
-  const [assessmentMode, setAssessmentMode] =
-    useState('technical');
+      return null;
+    }
 
-  const [voiceRecordingMode, setVoiceRecordingMode] =
-    useState('audio');
-
-  const [screenStream, setScreenStream] =
-    useState(null);
-
-  const [theme, setTheme] =
-    useState(
-      localStorage.getItem('theme') ||
-        'dark'
-    );
-
-  const [user, setUser] =
-    useState(null);
+    return session.access_token;
+  };
 
   const handleLogout = async () => {
     try {
@@ -130,21 +129,10 @@ function App() {
     }
 
     setSessionId(sid);
-
     setFirstMsg(replyStr);
-
-    setInterviewType(
-      targetType
-    );
-
-    setPressureMode(
-      isPressureMode
-    );
-
-    setAssessmentMode(
-      'technical'
-    );
-
+    setInterviewType(targetType);
+    setPressureMode(isPressureMode);
+    setAssessmentMode('technical');
     setView('chat');
   };
 
@@ -175,10 +163,11 @@ function App() {
 
     if (
       selectedRecordingMode ===
-        'video'
+      'video'
     ) {
       const videoTrack =
-        selectedScreenStream?.getVideoTracks?.()[0];
+        selectedScreenStream
+          ?.getVideoTracks?.()[0];
 
       if (
         !selectedScreenStream ||
@@ -204,12 +193,8 @@ function App() {
     }
 
     setSessionId(sid);
-
     setFirstMsg(replyStr);
-
-    setAssessmentMode(
-      'voice'
-    );
+    setAssessmentMode('voice');
 
     setVoiceRecordingMode(
       selectedRecordingMode ||
@@ -224,134 +209,141 @@ function App() {
     setView('voice');
   };
 
-  const handleEndSession =
-    async (
-      allMessages
-    ) => {
-      try {
-        const fillerWords = [
-          'um',
-          'uh',
-          'like',
-          'actually',
-          'basically',
-          'so'
-        ];
+  const handleEndSession = async (
+    allMessages
+  ) => {
+    try {
+      const fillerWords = [
+        'um',
+        'uh',
+        'like',
+        'actually',
+        'basically',
+        'so'
+      ];
 
-        let totalFillers = 0;
+      let totalFillers = 0;
 
-        const userTranscript =
-          allMessages
-            .filter(
-              (m) =>
-                m.sender ===
-                'user'
-            )
-            .map(
-              (m) =>
-                m.text.toLowerCase()
-            )
-            .join(' ');
+      const userTranscript =
+        allMessages
+          .filter(
+            (m) =>
+              m.sender ===
+              'user'
+          )
+          .map(
+            (m) =>
+              m.text.toLowerCase()
+          )
+          .join(' ');
 
-        fillerWords.forEach(
-          (word) => {
-            const regex =
-              new RegExp(
-                `\\b${word}\\b`,
-                'g'
-              );
+      fillerWords.forEach(
+        (word) => {
+          const regex =
+            new RegExp(
+              `\\b${word}\\b`,
+              'g'
+            );
 
-            const matches =
-              userTranscript.match(
-                regex
-              );
+          const matches =
+            userTranscript.match(
+              regex
+            );
 
-            if (matches) {
-              totalFillers +=
-                matches.length;
-            }
+          if (matches) {
+            totalFillers +=
+              matches.length;
+          }
+        }
+      );
+
+      console.log(
+        'Ending normal interview...'
+      );
+
+      console.log(
+        'Session ID:',
+        sessionId
+      );
+
+      console.log(
+        'Filler words:',
+        totalFillers
+      );
+
+      const recordingPath =
+        null;
+
+      const token =
+        await getAuthToken();
+
+      if (!token) {
+        return;
+      }
+
+      const response =
+        await fetch(
+          `${API_URL}/api/end`,
+          {
+            method:
+              'POST',
+
+            headers: {
+              'Content-Type':
+                'application/json',
+
+              Authorization:
+                `Bearer ${token}`
+            },
+
+            body:
+              JSON.stringify({
+                sessionId,
+                fillerWordsCount:
+                  totalFillers,
+                recordingPath
+              })
           }
         );
 
-        console.log(
-          'Ending normal interview...'
-        );
+      const data =
+        await response.json();
 
-        console.log(
-          'Session ID:',
-          sessionId
-        );
-
-        console.log(
-          'Filler words:',
-          totalFillers
-        );
-
-        const recordingPath =
-          null;
-
-        const response =
-          await fetch(
-            `${API_URL}/api/end`,
-            {
-              method: 'POST',
-
-              headers: {
-                'Content-Type':
-                  'application/json'
-              },
-
-              body: JSON.stringify({
-                sessionId,
-
-                fillerWordsCount:
-                  totalFillers,
-
-                recordingPath
-              })
-            }
-          );
-
-        const data =
-          await response.json();
-
-        if (!response.ok) {
-          throw new Error(
-            data.error ||
-              'Failed to generate evaluation report.'
-          );
-        }
-
-        if (
-          data.finalReport
-        ) {
-          const fillerAnalysis =
-            `\n\n--- 🔹 COMMUNICATION ANALYSIS ---\n` +
-            `⚠️ Filler Word Count: ${totalFillers} detected. ` +
-            `(Focus on reducing "um", "uh", "like" for a more professional tone.)\n`;
-
-          setReportData(
-            data.finalReport +
-              fillerAnalysis
-          );
-
-          setView('report');
-        } else {
-          throw new Error(
-            'The backend did not return a final report.'
-          );
-        }
-      } catch (error) {
-        console.error(
-          'Failed to end session',
-          error
-        );
-
-        alert(
-          'Failed to generate report. Is your backend running?'
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+            'Failed to generate evaluation report.'
         );
       }
-    };
+
+      if (data.finalReport) {
+        const fillerAnalysis =
+          `\n\n--- 🔹 COMMUNICATION ANALYSIS ---\n` +
+          `⚠️ Filler Word Count: ${totalFillers} detected. ` +
+          `(Focus on reducing "um", "uh", "like" for a more professional tone.)\n`;
+
+        setReportData(
+          data.finalReport +
+            fillerAnalysis
+        );
+
+        setView('report');
+      } else {
+        throw new Error(
+          'The backend did not return a final report.'
+        );
+      }
+    } catch (error) {
+      console.error(
+        'Failed to end session',
+        error
+      );
+
+      alert(
+        'Failed to generate report. Is your backend running?'
+      );
+    }
+  };
 
   const handleEndVoiceInterview =
     async (
@@ -427,27 +419,37 @@ function App() {
           recordingPath
         );
 
+        const token =
+          await getAuthToken();
+
+        if (!token) {
+          return;
+        }
+
         const response =
           await fetch(
             `${API_URL}/api/end`,
             {
-              method: 'POST',
+              method:
+                'POST',
 
               headers: {
                 'Content-Type':
-                  'application/json'
+                  'application/json',
+
+                Authorization:
+                  `Bearer ${token}`
               },
 
-              body: JSON.stringify({
-                sessionId,
-
-                fillerWordsCount:
-                  totalFillers,
-
-                recordingPath:
-                  recordingPath ||
-                  null
-              })
+              body:
+                JSON.stringify({
+                  sessionId,
+                  fillerWordsCount:
+                    totalFillers,
+                  recordingPath:
+                    recordingPath ||
+                    null
+                })
             }
           );
 
@@ -461,9 +463,7 @@ function App() {
           );
         }
 
-        if (
-          data.finalReport
-        ) {
+        if (data.finalReport) {
           const fillerAnalysis =
             `\n\n--- 🔹 COMMUNICATION ANALYSIS ---\n` +
             `⚠️ Filler Word Count: ${totalFillers} detected. ` +
@@ -477,17 +477,21 @@ function App() {
           if (screenStream) {
             screenStream
               .getTracks()
-              .forEach((track) => {
-                try {
-                  track.stop();
-                } catch {}
-              });
+              .forEach(
+                (track) => {
+                  try {
+                    track.stop();
+                  } catch {}
+                }
+              );
 
             console.log(
               '🖥️ Screen sharing stream stopped.'
             );
 
-            setScreenStream(null);
+            setScreenStream(
+              null
+            );
           }
 
           setView('report');
@@ -522,12 +526,25 @@ function App() {
     };
   }, []);
 
+  const isInterviewActive =
+    view === 'chat' ||
+    view === 'voice';
+
   return (
     <Routes>
       <Route
         path="/auth"
         element={
           <AuthPage />
+        }
+      />
+
+      <Route
+        path="/dashboard"
+        element={
+          <ProtectedRoute>
+            <Dashboard />
+          </ProtectedRoute>
         }
       />
 
@@ -573,40 +590,63 @@ function App() {
                       : undefined
                 }}
               >
-                <div
-                  className="top-nav"
-                  style={{
-                    display:
-                      'flex',
-
-                    justifyContent:
-                      'flex-end',
-
-                    padding:
-                      '1rem'
-                  }}
-                >
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={
-                      handleLogout
-                    }
+                {!isInterviewActive && (
+                  <div
+                    className="top-nav"
                     style={{
-                      width:
-                        'auto',
+                      display:
+                        'flex',
+
+                      justifyContent:
+                        'space-between',
+
+                      alignItems:
+                        'center',
+
                       padding:
-                        '0.6rem 1.2rem'
+                        '1rem'
                     }}
                   >
-                    Logout
-                  </button>
-                </div>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() =>
+                        navigate(
+                          '/dashboard'
+                        )
+                      }
+                      style={{
+                        width:
+                          'auto',
 
-                {view !==
-                  'report' &&
-                  view !==
-                    'voice' && (
+                        padding:
+                          '0.6rem 1.2rem'
+                      }}
+                    >
+                      Dashboard
+                    </button>
+
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={
+                        handleLogout
+                      }
+                      style={{
+                        width:
+                          'auto',
+
+                        padding:
+                          '0.6rem 1.2rem'
+                      }}
+                    >
+                      Logout
+                    </button>
+                  </div>
+                )}
+
+                {view !== 'report' &&
+                  view !== 'voice' && (
                     <h1 className="title">
                       AI-Facilitated
                       Competency
@@ -614,76 +654,62 @@ function App() {
                     </h1>
                   )}
 
-                {view ===
-                  'setup' && (
+                {view === 'setup' && (
                   <Setup
                     onStart={
                       handleStartSession
                     }
-
                     onStartVoice={
                       handleStartVoiceSession
                     }
                   />
                 )}
 
-                {view ===
-                  'chat' && (
+                {view === 'chat' && (
                   <Chat
                     sessionId={
                       sessionId
                     }
-
                     initialMessage={
                       firstMsg
                     }
-
                     interviewType={
                       interviewType
                     }
-
                     pressureMode={
                       pressureMode
                     }
-
                     onEndInterview={
                       handleEndSession
                     }
                   />
                 )}
 
-                {view ===
-                  'voice' && (
+                {view === 'voice' && (
                   <VoiceInterview
                     sessionId={
                       sessionId
                     }
-
                     initialMessage={
                       firstMsg
                     }
-
                     recordingMode={
                       voiceRecordingMode
                     }
-
                     screenStream={
                       screenStream
                     }
-
                     onEndInterview={
                       handleEndVoiceInterview
                     }
                   />
                 )}
 
-                {view ===
-                  'report' && (
+                {view === 'report' && (
                   <EvaluationReport
                     rawReport={
                       reportData
                     }
-
                     onRestart={() => {
                       if (
                         screenStream

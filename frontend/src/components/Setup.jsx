@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { supabase } from '../lib/supabaseClient';
 import Dropdown from './Dropdown';
 
 const Setup = ({ onStart, onStartVoice }) => {
@@ -38,14 +39,21 @@ const Setup = ({ onStart, onStartVoice }) => {
   const [resumeFile, setResumeFile] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  /*
-   * =========================================================
-   * FULLSCREEN
-   * =========================================================
-   *
-   * Fullscreen must be requested from the user's Start button
-   * gesture.
-   */
+  const getAuthToken = async () => {
+    const {
+      data: { session }
+    } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      alert(
+        'Your session has expired. Please sign in again.'
+      );
+
+      return null;
+    }
+
+    return session.access_token;
+  };
 
   const enterFullscreen = async () => {
     if (document.fullscreenElement) {
@@ -77,26 +85,6 @@ const Setup = ({ onStart, onStartVoice }) => {
       return false;
     }
   };
-
-  /*
-   * =========================================================
-   * SCREEN SHARE PREPARATION
-   * =========================================================
-   *
-   * IMPORTANT:
-   *
-   * For Audio + Video interviews, screen sharing is requested
-   * BEFORE fullscreen.
-   *
-   * Chrome can temporarily leave fullscreen while its native
-   * screen/window selection dialog is open.
-   *
-   * After the user finishes the picker, handleVoiceSubmit()
-   * requests fullscreen again.
-   *
-   * The resulting MediaStream is passed to VoiceInterview so
-   * that VoiceInterview does not request screen sharing again.
-   */
 
   const prepareVoiceVideoScreenShare = async () => {
     if (
@@ -158,12 +146,6 @@ const Setup = ({ onStart, onStartVoice }) => {
     }
   };
 
-  /*
-   * =========================================================
-   * SWITCH MODE
-   * =========================================================
-   */
-
   const toggleAssessmentMode = () => {
     if (loading) return;
 
@@ -174,20 +156,25 @@ const Setup = ({ onStart, onStartVoice }) => {
     );
   };
 
-  /*
-   * =========================================================
-   * LEETCODE
-   * =========================================================
-   */
-
   const handleFetchLeetCode = async () => {
     if (!technicalForm.leetcodeUsername) return;
 
     setFetchingLeetcode(true);
 
     try {
+      const token = await getAuthToken();
+
+      if (!token) {
+        return;
+      }
+
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/leetcode-profile/${technicalForm.leetcodeUsername}`
+        `${import.meta.env.VITE_API_URL}/api/leetcode-profile/${technicalForm.leetcodeUsername}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        }
       );
 
       const data = await response.json();
@@ -213,20 +200,25 @@ const Setup = ({ onStart, onStartVoice }) => {
     }
   };
 
-  /*
-   * =========================================================
-   * GITHUB
-   * =========================================================
-   */
-
   const handleFetchGitHub = async () => {
     if (!technicalForm.githubUsername) return;
 
     setFetchingGithub(true);
 
     try {
+      const token = await getAuthToken();
+
+      if (!token) {
+        return;
+      }
+
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/github-profile/${technicalForm.githubUsername}`
+        `${import.meta.env.VITE_API_URL}/api/github-profile/${technicalForm.githubUsername}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        }
       );
 
       const data = await response.json();
@@ -252,12 +244,6 @@ const Setup = ({ onStart, onStartVoice }) => {
     }
   };
 
-  /*
-   * =========================================================
-   * TECHNICAL INTERVIEW
-   * =========================================================
-   */
-
   const handleTechnicalSubmit = async (e) => {
     e.preventDefault();
 
@@ -269,6 +255,20 @@ const Setup = ({ onStart, onStartVoice }) => {
     }
 
     setLoading(true);
+
+    const token = await getAuthToken();
+
+    if (!token) {
+      setLoading(false);
+
+      if (document.fullscreenElement) {
+        try {
+          await document.exitFullscreen();
+        } catch {}
+      }
+
+      return;
+    }
 
     const data = new FormData();
 
@@ -298,6 +298,9 @@ const Setup = ({ onStart, onStartVoice }) => {
         `${import.meta.env.VITE_API_URL}/api/start`,
         {
           method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`
+          },
           body: data
         }
       );
@@ -335,50 +338,14 @@ const Setup = ({ onStart, onStartVoice }) => {
     }
   };
 
-  /*
-   * =========================================================
-   * VOICE INTERVIEW
-   * =========================================================
-   *
-   * For Audio:
-   *   Fullscreen → backend → VoiceInterview
-   *
-   * For Audio + Video:
-   *   Screen-share picker
-   *        ↓
-   *   Screen sharing granted
-   *        ↓
-   *   Fullscreen requested again
-   *        ↓
-   *   Backend
-   *        ↓
-   *   VoiceInterview receives the existing screen stream
-   */
-
   const handleVoiceSubmit = async (e) => {
     e.preventDefault();
 
-    /*
-     * Prevent double-clicks from creating multiple
-     * screen-share requests / interviews.
-     */
     if (loading) {
       return;
     }
 
     let screenStream = null;
-
-    /*
-     * =======================================================
-     * VIDEO MODE
-     * =======================================================
-     *
-     * Request screen sharing BEFORE fullscreen.
-     *
-     * Chrome's screen-share picker may temporarily exit
-     * fullscreen. Once the picker closes, we request
-     * fullscreen again below.
-     */
 
     if (
       voiceForm.recordingMode ===
@@ -391,9 +358,6 @@ const Setup = ({ onStart, onStartVoice }) => {
         return;
       }
 
-      /*
-       * Make sure the screen-sharing track is still alive.
-       */
       const screenTrack =
         screenStream.getVideoTracks()[0];
 
@@ -418,28 +382,10 @@ const Setup = ({ onStart, onStartVoice }) => {
       }
     }
 
-    /*
-     * =======================================================
-     * FULLSCREEN
-     * =======================================================
-     *
-     * This happens AFTER the Chrome screen-sharing picker.
-     *
-     * Therefore, even if Chrome temporarily exits fullscreen
-     * while the picker is visible, we establish fullscreen
-     * again before the interview starts.
-     */
-
     const fullscreenStarted =
       await enterFullscreen();
 
     if (!fullscreenStarted) {
-      /*
-       * If fullscreen fails, stop the already-created
-       * screen-sharing stream so the browser does not keep
-       * sharing the user's screen.
-       */
-
       if (screenStream) {
         screenStream
           .getTracks()
@@ -454,6 +400,30 @@ const Setup = ({ onStart, onStartVoice }) => {
     }
 
     setLoading(true);
+
+    const token = await getAuthToken();
+
+    if (!token) {
+      if (screenStream) {
+        screenStream
+          .getTracks()
+          .forEach((track) => {
+            try {
+              track.stop();
+            } catch {}
+          });
+      }
+
+      setLoading(false);
+
+      if (document.fullscreenElement) {
+        try {
+          await document.exitFullscreen();
+        } catch {}
+      }
+
+      return;
+    }
 
     const data = new FormData();
 
@@ -507,6 +477,9 @@ const Setup = ({ onStart, onStartVoice }) => {
         `${import.meta.env.VITE_API_URL}/api/start`,
         {
           method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`
+          },
           body: data
         }
       );
@@ -515,15 +488,6 @@ const Setup = ({ onStart, onStartVoice }) => {
         await response.json();
 
       if (response.ok) {
-        /*
-         * IMPORTANT:
-         *
-         * Pass the already-approved screenStream to
-         * VoiceInterview.
-         *
-         * VoiceInterview must use this stream instead of
-         * calling getDisplayMedia() a second time.
-         */
         onStartVoice(
           respData.sessionId,
           respData.reply,
@@ -531,11 +495,6 @@ const Setup = ({ onStart, onStartVoice }) => {
           screenStream
         );
       } else {
-        /*
-         * Backend failed, so release the screen-sharing
-         * permission/stream.
-         */
-
         if (screenStream) {
           screenStream
             .getTracks()
@@ -560,12 +519,6 @@ const Setup = ({ onStart, onStartVoice }) => {
         err
       );
 
-      /*
-       * Backend/network failure:
-       * stop the screen stream because the interview
-       * never actually started.
-       */
-
       if (screenStream) {
         screenStream
           .getTracks()
@@ -587,12 +540,6 @@ const Setup = ({ onStart, onStartVoice }) => {
       setLoading(false);
     }
   };
-
-  /*
-   * =========================================================
-   * PRESSURE MODE
-   * =========================================================
-   */
 
   const renderToggleCard = ({
     icon,
@@ -754,12 +701,6 @@ const Setup = ({ onStart, onStartVoice }) => {
       </button>
     );
   };
-
-  /*
-   * =========================================================
-   * PROFESSIONAL GENERAL / AUDIO MODE SELECTOR
-   * =========================================================
-   */
 
   const renderModeSwitch = () => {
     const isGeneral =
@@ -932,12 +873,6 @@ const Setup = ({ onStart, onStartVoice }) => {
       </div>
     );
   };
-
-  /*
-   * =========================================================
-   * CARD STYLES
-   * =========================================================
-   */
 
   const cardStyle = {
     width: '100%',

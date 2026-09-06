@@ -885,6 +885,8 @@ SCORE_JSON:
             await supabase
                 .from('AI_MOCK')
                 .insert({
+                    user_id:
+                        req.user.id,
                     session_id:
                         sessionId,
 

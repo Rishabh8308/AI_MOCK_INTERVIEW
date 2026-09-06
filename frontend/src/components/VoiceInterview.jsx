@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { supabase } from '../lib/supabaseClient';
 
 const VoiceInterview = ({
   sessionId,
@@ -130,6 +131,24 @@ const VoiceInterview = ({
   const SpeechRecognition =
     window.SpeechRecognition ||
     window.webkitSpeechRecognition;
+
+  const getAuthToken =
+    async () => {
+      const {
+        data: { session }
+      } =
+        await supabase.auth.getSession();
+
+      if (
+        !session?.access_token
+      ) {
+        throw new Error(
+          'Your session has expired. Please sign in again.'
+        );
+      }
+
+      return session.access_token;
+    };
 
   const updateStatus = (value) => {
     statusRef.current =
@@ -1041,189 +1060,196 @@ const VoiceInterview = ({
           session;
 
         const uploadChunk = async (
-  chunks,
-  chunkIndex
-) => {
-  if (
-    !chunks ||
-    chunks.length === 0
-  ) {
-    return null;
-  }
-
-  const blob =
-    new Blob(
-      chunks,
-      {
-        type:
-          session.mimeType
-      }
-    );
-
-  if (
-    blob.size === 0
-  ) {
-    return null;
-  }
-
-  if (
-    blob.size >
-    RECORDING_MAX_CHUNK
-  ) {
-    throw new Error(
-      `Recording chunk exceeds 25 MB: ${blob.size} bytes`
-    );
-  }
-
-  const formData =
-    new FormData();
-
-  formData.append(
-    'chunk',
-    blob,
-    `chunk-${String(
-      chunkIndex + 1
-    ).padStart(
-      6,
-      '0'
-    )}.webm`
-  );
-
-  formData.append(
-    'sessionId',
-    sessionId
-  );
-
-  formData.append(
-    'recordingMode',
-    recordingMode
-  );
-
-  formData.append(
-    'chunkIndex',
-    String(
-      chunkIndex
-    )
-  );
-
-  const maxAttempts =
-    4;
-
-  let lastError =
-    null;
-
-  for (
-    let attempt = 1;
-    attempt <= maxAttempts;
-    attempt++
-  ) {
-    try {
-      console.log(
-        'Uploading recording chunk:',
-        {
-          chunkIndex,
-          attempt,
-          size:
-            blob.size,
-          sizeMB:
-            (
-              blob.size /
-              1024 /
-              1024
-            ).toFixed(
-              2
-            )
-        }
-      );
-
-      const response =
-        await fetch(
-          `${API_URL}/api/recording/upload-chunk`,
-          {
-            method:
-              'POST',
-            body:
-              formData
+          chunks,
+          chunkIndex
+        ) => {
+          if (
+            !chunks ||
+            chunks.length === 0
+          ) {
+            return null;
           }
-        );
 
-      let data;
+          const blob =
+            new Blob(
+              chunks,
+              {
+                type:
+                  session.mimeType
+              }
+            );
 
-      try {
-        data =
-          await response.json();
-      } catch {
-        throw new Error(
-          'Backend returned an invalid response.'
-        );
-      }
+          if (
+            blob.size === 0
+          ) {
+            return null;
+          }
 
-      if (
-        !response.ok
-      ) {
-        throw new Error(
-          data.details ||
-            data.error ||
-            `Upload failed with HTTP ${response.status}`
-        );
-      }
+          if (
+            blob.size >
+            RECORDING_MAX_CHUNK
+          ) {
+            throw new Error(
+              `Recording chunk exceeds 25 MB: ${blob.size} bytes`
+            );
+          }
 
-      console.log(
-        'Recording chunk uploaded:',
-        {
-          chunkIndex,
-          attempt,
-          path:
-            data.path
-        }
-      );
+          const formData =
+            new FormData();
 
-      return data;
-    } catch (error) {
-      lastError =
-        error;
-
-      console.error(
-        `Recording chunk upload attempt ${attempt} failed:`,
-        error
-      );
-
-      if (
-        attempt <
-        maxAttempts
-      ) {
-        const delay =
-          Math.min(
-            1000 *
-              Math.pow(
-                2,
-                attempt - 1
-              ),
-            8000
+          formData.append(
+            'chunk',
+            blob,
+            `chunk-${String(
+              chunkIndex + 1
+            ).padStart(
+              6,
+              '0'
+            )}.webm`
           );
 
-        console.log(
-          `Retrying chunk ${chunkIndex} in ${delay}ms...`
-        );
+          formData.append(
+            'sessionId',
+            sessionId
+          );
 
-        await new Promise(
-          (resolve) =>
-            setTimeout(
-              resolve,
-              delay
+          formData.append(
+            'recordingMode',
+            recordingMode
+          );
+
+          formData.append(
+            'chunkIndex',
+            String(
+              chunkIndex
             )
-        );
-      }
-    }
-  }
+          );
 
-  throw (
-    lastError ||
-    new Error(
-      'Recording chunk upload failed.'
-    )
-  );
-};
+          const maxAttempts =
+            4;
+
+          let lastError =
+            null;
+
+          for (
+            let attempt = 1;
+            attempt <= maxAttempts;
+            attempt++
+          ) {
+            try {
+              console.log(
+                'Uploading recording chunk:',
+                {
+                  chunkIndex,
+                  attempt,
+                  size:
+                    blob.size,
+                  sizeMB:
+                    (
+                      blob.size /
+                      1024 /
+                      1024
+                    ).toFixed(
+                      2
+                    )
+                }
+              );
+
+              const token =
+                await getAuthToken();
+
+              const response =
+                await fetch(
+                  `${API_URL}/api/recording/upload-chunk`,
+                  {
+                    method:
+                      'POST',
+                    headers: {
+                      Authorization:
+                        `Bearer ${token}`
+                    },
+                    body:
+                      formData
+                  }
+                );
+
+              let data;
+
+              try {
+                data =
+                  await response.json();
+              } catch {
+                throw new Error(
+                  'Backend returned an invalid response.'
+                );
+              }
+
+              if (
+                !response.ok
+              ) {
+                throw new Error(
+                  data.details ||
+                    data.error ||
+                    `Upload failed with HTTP ${response.status}`
+                );
+              }
+
+              console.log(
+                'Recording chunk uploaded:',
+                {
+                  chunkIndex,
+                  attempt,
+                  path:
+                    data.path
+                }
+              );
+
+              return data;
+            } catch (error) {
+              lastError =
+                error;
+
+              console.error(
+                `Recording chunk upload attempt ${attempt} failed:`,
+                error
+              );
+
+              if (
+                attempt <
+                maxAttempts
+              ) {
+                const delay =
+                  Math.min(
+                    1000 *
+                      Math.pow(
+                        2,
+                        attempt - 1
+                      ),
+                    8000
+                  );
+
+                console.log(
+                  `Retrying chunk ${chunkIndex} in ${delay}ms...`
+                );
+
+                await new Promise(
+                  (resolve) =>
+                    setTimeout(
+                      resolve,
+                      delay
+                    )
+                );
+              }
+            }
+          }
+
+          throw (
+            lastError ||
+            new Error(
+              'Recording chunk upload failed.'
+            )
+          );
+        };
 
         const queueChunkUpload =
           (
@@ -1476,6 +1502,9 @@ const VoiceInterview = ({
                 );
               }
 
+              const token =
+                await getAuthToken();
+
               const finalizeResponse =
                 await fetch(
                   `${API_URL}/api/recording/finalize`,
@@ -1485,7 +1514,10 @@ const VoiceInterview = ({
 
                     headers: {
                       'Content-Type':
-                        'application/json'
+                        'application/json',
+
+                      Authorization:
+                        `Bearer ${token}`
                     },
 
                     body:
@@ -2242,6 +2274,9 @@ const VoiceInterview = ({
       setError('');
 
       try {
+        const token =
+          await getAuthToken();
+
         const response =
           await fetch(
             `${API_URL}/api/chat`,
@@ -2251,7 +2286,10 @@ const VoiceInterview = ({
 
               headers: {
                 'Content-Type':
-                  'application/json'
+                  'application/json',
+
+                Authorization:
+                  `Bearer ${token}`
               },
 
               body:
