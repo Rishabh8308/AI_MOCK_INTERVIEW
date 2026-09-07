@@ -44,7 +44,7 @@ const EvaluationReport = ({ rawReport, onRestart }) => {
       </div>
       <div style={{display: 'flex', gap: '1rem', marginTop: '2rem'}}>
         <button onClick={exportPDF} className="btn btn-primary" style={{flex: 1}}>
-          📄 Export to PDF
+           Export to PDF
         </button>
         <button onClick={onRestart} className="btn btn-primary" style={{flex: 1, background: 'rgba(255,255,255,0.1)', color: 'var(--text-main)', border: '1px solid var(--glass-border)'}}>
           Start New Session

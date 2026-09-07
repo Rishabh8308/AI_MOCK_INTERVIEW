@@ -12,7 +12,8 @@ import {
 import {
     uploadRecording,
     uploadRecordingChunk,
-    finalizeRecording
+    finalizeRecording,
+    getRecording
 } from '../controllers/uploadController.js';
 
 import { authMiddleware } from '../middleware/auth.js';
@@ -68,7 +69,11 @@ router.post(
     authMiddleware,
     finalizeRecording
 );
-
+router.get(
+    '/recording/:id',
+    authMiddleware,
+    getRecording
+);
 router.get(
     '/leetcode-profile/:username',
     authMiddleware,

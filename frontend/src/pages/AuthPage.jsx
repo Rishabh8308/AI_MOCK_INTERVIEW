@@ -6,38 +6,41 @@ const AuthPage = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  const [isSignUp, setIsSignUp] = useState(
-    searchParams.get('mode') === 'signup'
-  );
+  const initialMode =
+    searchParams.get('mode') === 'reset'
+      ? 'reset'
+      : searchParams.get('mode') === 'signup'
+        ? 'signup'
+        : 'signin';
+
+  const [mode, setMode] = useState(initialMode);
+
+  const isSignUp = mode === 'signup';
+  const isReset = mode === 'reset';
 
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] =
-    useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
-  const [showPassword, setShowPassword] =
-    useState(false);
-
-  const [showConfirmPassword, setShowConfirmPassword] =
-    useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [loading, setLoading] = useState(false);
-  const [resetLoading, setResetLoading] =
-    useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
 
   const [error, setError] = useState(null);
   const [message, setMessage] = useState(null);
 
   useEffect(() => {
-    const mode = searchParams.get('mode');
+    const currentMode = searchParams.get('mode');
 
-    if (mode === 'signup') {
-      setIsSignUp(true);
-    }
-
-    if (mode === 'signin') {
-      setIsSignUp(false);
+    if (currentMode === 'reset') {
+      setMode('reset');
+    } else if (currentMode === 'signup') {
+      setMode('signup');
+    } else {
+      setMode('signin');
     }
   }, [searchParams]);
 
@@ -49,8 +52,12 @@ const AuthPage = () => {
         data: { session }
       } = await supabase.auth.getSession();
 
-      if (mounted && session) {
-        navigate('/journey', {
+      if (
+        mounted &&
+        session &&
+        searchParams.get('mode') !== 'reset'
+      ) {
+        navigate('/', {
           replace: true
         });
       }
@@ -58,10 +65,51 @@ const AuthPage = () => {
 
     checkSession();
 
+    const {
+      data: { subscription }
+    } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (!mounted) {
+          return;
+        }
+
+        if (event === 'PASSWORD_RECOVERY') {
+          setMode('reset');
+          setError(null);
+          setMessage(null);
+
+          navigate('/auth?mode=reset', {
+            replace: true
+          });
+
+          return;
+        }
+
+        if (event === 'SIGNED_OUT') {
+          if (searchParams.get('mode') !== 'reset') {
+            setMode('signin');
+          }
+
+          return;
+        }
+
+        if (
+          session &&
+          event === 'SIGNED_IN' &&
+          searchParams.get('mode') !== 'reset'
+        ) {
+          navigate('/', {
+            replace: true
+          });
+        }
+      }
+    );
+
     return () => {
       mounted = false;
+      subscription.unsubscribe();
     };
-  }, [navigate]);
+  }, [navigate, searchParams]);
 
   const switchMode = () => {
     setError(null);
@@ -73,12 +121,12 @@ const AuthPage = () => {
     setShowPassword(false);
     setShowConfirmPassword(false);
 
-    const nextMode = !isSignUp;
+    const nextMode = isSignUp ? 'signin' : 'signup';
 
-    setIsSignUp(nextMode);
+    setMode(nextMode);
 
     navigate(
-      nextMode
+      nextMode === 'signup'
         ? '/auth?mode=signup'
         : '/auth?mode=signin',
       {
@@ -126,10 +174,9 @@ const AuthPage = () => {
             password,
             options: {
               emailRedirectTo:
-                `${window.location.origin}/journey`,
+                `${window.location.origin}/`,
               data: {
-                username:
-                  username.trim()
+                username: username.trim()
               }
             }
           });
@@ -139,13 +186,17 @@ const AuthPage = () => {
         }
 
         if (data.session) {
-          navigate('/journey', {
+          navigate('/', {
             replace: true
           });
         } else {
           setMessage(
             'Account created successfully. Check your email for the confirmation link.'
           );
+
+          setTimeout(() => {
+            setMessage(null);
+          }, 3000);
         }
       } else {
         const { error } =
@@ -158,7 +209,7 @@ const AuthPage = () => {
           throw error;
         }
 
-        navigate('/journey', {
+        navigate('/', {
           replace: true
         });
       }
@@ -167,6 +218,10 @@ const AuthPage = () => {
         err.message ||
           'Something went wrong. Please try again.'
       );
+
+      setTimeout(() => {
+        setError(null);
+      }, 3000);
     } finally {
       setLoading(false);
     }
@@ -180,6 +235,11 @@ const AuthPage = () => {
       setError(
         'Enter your email address first, then click Forgot password.'
       );
+
+      setTimeout(() => {
+        setError(null);
+      }, 3000);
+
       return;
     }
 
@@ -191,7 +251,7 @@ const AuthPage = () => {
           email.trim(),
           {
             redirectTo:
-              `${window.location.origin}/auth`
+              `${window.location.origin}/auth?mode=reset`
           }
         );
 
@@ -205,14 +265,79 @@ const AuthPage = () => {
 
       setTimeout(() => {
         setMessage(null);
-      }, 4000);
+      }, 3000);
     } catch (err) {
       setError(
         err.message ||
           'Unable to send password reset email.'
       );
+
+      setTimeout(() => {
+        setError(null);
+      }, 3000);
     } finally {
       setResetLoading(false);
+    }
+  };
+
+  const handlePasswordReset = async (e) => {
+    e.preventDefault();
+
+    setLoading(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      if (password.length < 6) {
+        throw new Error(
+          'Password must be at least 6 characters long.'
+        );
+      }
+
+      if (password !== confirmPassword) {
+        throw new Error(
+          'Passwords do not match.'
+        );
+      }
+
+      const { error } =
+        await supabase.auth.updateUser({
+          password
+        });
+
+      if (error) {
+        throw error;
+      }
+
+      setPassword('');
+      setConfirmPassword('');
+
+      setMessage(
+        'Password reset successfully.'
+      );
+
+      setTimeout(() => {
+        setMessage(null);
+        setMode('signin');
+
+        navigate(
+          '/auth?mode=signin',
+          {
+            replace: true
+          }
+        );
+      }, 3000);
+    } catch (err) {
+      setError(
+        err.message ||
+          'Unable to reset your password.'
+      );
+
+      setTimeout(() => {
+        setError(null);
+      }, 3000);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -260,7 +385,7 @@ const AuthPage = () => {
         }
 
         .auth-scene {
-          width: min(500px, 88vw);
+          width: min(560px, 92vw);
           aspect-ratio: 1 / 1;
           perspective: 1800px;
           position: relative;
@@ -580,20 +705,76 @@ const AuthPage = () => {
           border: 1px solid rgba(39, 199, 176, 0.18);
         }
 
-        .auth-spinner {
-          width: 17px;
-          height: 17px;
-          border-radius: 50%;
-          border: 2px solid rgba(7, 18, 17, 0.25);
-          border-top-color: #071211;
-          animation: authSpin 0.7s linear infinite;
-          margin: 0 auto;
+        .auth-reset-note {
+          margin: -0.6rem 0 0.8rem;
+          color: #687275;
+          font-size: 0.68rem;
+          line-height: 1.45;
         }
 
-        @keyframes authSpin {
-          to {
-            transform: rotate(360deg);
-          }
+        .auth-reset-back {
+          margin-top: 1.2rem;
+          border: none;
+          background: transparent;
+          color: #707b7f;
+          font-size: 0.72rem;
+          cursor: pointer;
+          transition: color 0.2s ease;
+        }
+
+        .auth-reset-back:hover {
+          color: #62d6c5;
+        }
+
+        .auth-reset-container {
+          width: 100%;
+          height: 100%;
+          position: relative;
+        }
+
+        .auth-reset-face {
+          width: 100%;
+          height: 100%;
+          position: relative;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-sizing: border-box;
+          padding: 4rem;
+
+          background:
+            radial-gradient(
+              circle at 35% 25%,
+              rgba(39, 199, 176, 0.08),
+              transparent 45%
+            ),
+            #111516;
+
+          border: 1px solid rgba(39, 199, 176, 0.22);
+
+          box-shadow:
+            0 0 35px rgba(39, 199, 176, 0.07),
+            0 25px 70px rgba(0, 0, 0, 0.55),
+            inset 0 0 45px rgba(39, 199, 176, 0.025);
+        }
+
+        .auth-reset-face::before {
+          content: '';
+          position: absolute;
+          inset: 12px;
+          border-radius: 50%;
+          border: 1px solid rgba(39, 199, 176, 0.09);
+          pointer-events: none;
+        }
+
+        .auth-reset-face::after {
+          content: '';
+          position: absolute;
+          inset: 24px;
+          border-radius: 50%;
+          border: 1px solid rgba(255, 255, 255, 0.035);
+          pointer-events: none;
         }
 
         @media (max-width: 600px) {
@@ -605,7 +786,8 @@ const AuthPage = () => {
             width: min(430px, 94vw);
           }
 
-          .auth-face {
+          .auth-face,
+          .auth-reset-face {
             padding: 3rem;
           }
 
@@ -619,7 +801,8 @@ const AuthPage = () => {
         }
 
         @media (max-width: 400px) {
-          .auth-face {
+          .auth-face,
+          .auth-reset-face {
             padding: 2.7rem;
           }
 
@@ -640,374 +823,600 @@ const AuthPage = () => {
 
       <div className="auth-page">
         <div className="auth-scene">
-          <div
-            className={`auth-circle ${
-              isSignUp ? 'signup' : ''
-            }`}
-          >
-            <div className="auth-face signin-face">
-              <div className="auth-content">
-                <h1 className="auth-heading">
-                  Sign In
-                </h1>
 
-                <p className="auth-subheading">
-                  Welcome back to AI Interviewer
-                </p>
+          {isReset ? (
+            <div className="auth-reset-container">
+              <div className="auth-reset-face">
+                <div className="auth-content">
+                  <h1 className="auth-heading">
+                    Reset Password
+                  </h1>
 
-                {error && (
-                  <div className="auth-error">
-                    {error}
-                  </div>
-                )}
+                  <p className="auth-subheading">
+                    Create a new password for your account
+                  </p>
 
-                {message && (
-                  <div className="auth-message">
-                    {message}
-                  </div>
-                )}
+                  {error && (
+                    <div className="auth-error">
+                      {error}
+                    </div>
+                  )}
 
-                <form
-                  className="auth-form"
-                  onSubmit={handleAuth}
-                >
-                  <input
-                    className="auth-input"
-                    type="email"
-                    value={email}
-                    onChange={(e) =>
-                      setEmail(e.target.value)
-                    }
-                    placeholder="Email address"
-                    autoComplete="email"
-                    required
-                  />
+                  {message && (
+                    <div className="auth-message">
+                      {message}
+                    </div>
+                  )}
 
-                  <div className="auth-password-wrap">
-                    <input
-                      className="auth-input"
-                      type={
-                        showPassword
-                          ? 'text'
-                          : 'password'
-                      }
-                      value={password}
-                      onChange={(e) =>
-                        setPassword(e.target.value)
-                      }
-                      placeholder="Password"
-                      autoComplete="current-password"
-                      required
-                    />
+                  <form
+                    className="auth-form"
+                    onSubmit={handlePasswordReset}
+                  >
+                    <div className="auth-password-wrap">
+                      <input
+                        className="auth-input"
+                        type={
+                          showPassword
+                            ? 'text'
+                            : 'password'
+                        }
+                        value={password}
+                        onChange={(e) =>
+                          setPassword(
+                            e.target.value
+                          )
+                        }
+                        placeholder="New password"
+                        autoComplete="new-password"
+                        minLength={6}
+                        required
+                      />
+
+                      <button
+                        type="button"
+                        className="password-toggle"
+                        onClick={() =>
+                          setShowPassword(
+                            (prev) => !prev
+                          )
+                        }
+                        aria-label={
+                          showPassword
+                            ? 'Hide password'
+                            : 'Show password'
+                        }
+                      >
+                        {showPassword ? (
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M3 3l18 18" />
+                            <path d="M10.58 10.58a2 2 0 0 0 2.83 2.83" />
+                            <path d="M9.88 4.24A9.77 9.77 0 0 1 12 4c7 0 10 8 10 8a17.9 17.9 0 0 1-3.17 4.4" />
+                            <path d="M6.61 6.61C3.62 8.59 2 12 2 12s3 8 10 8a9.77 9.77 0 0 0 3.88-.8" />
+                          </svg>
+                        ) : (
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M2 12s3-8 10-8 10 8 10 8-3 8-10 8S2 12 2 12Z" />
+                            <circle
+                              cx="12"
+                              cy="12"
+                              r="3"
+                            />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
+
+                    <div className="auth-password-wrap">
+                      <input
+                        className="auth-input"
+                        type={
+                          showConfirmPassword
+                            ? 'text'
+                            : 'password'
+                        }
+                        value={confirmPassword}
+                        onChange={(e) =>
+                          setConfirmPassword(
+                            e.target.value
+                          )
+                        }
+                        placeholder="Confirm new password"
+                        autoComplete="new-password"
+                        minLength={6}
+                        required
+                      />
+
+                      <button
+                        type="button"
+                        className="password-toggle"
+                        onClick={() =>
+                          setShowConfirmPassword(
+                            (prev) => !prev
+                          )
+                        }
+                        aria-label={
+                          showConfirmPassword
+                            ? 'Hide confirm password'
+                            : 'Show confirm password'
+                        }
+                      >
+                        {showConfirmPassword ? (
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M3 3l18 18" />
+                            <path d="M10.58 10.58a2 2 0 0 0 2.83 2.83" />
+                            <path d="M9.88 4.24A9.77 9.77 0 0 1 12 4c7 0 10 8 10 8a17.9 17.9 0 0 1-3.17 4.4" />
+                            <path d="M6.61 6.61C3.62 8.59 2 12 2 12s3 8 10 8a9.77 9.77 0 0 0 3.88-.8" />
+                          </svg>
+                        ) : (
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M2 12s3-8 10-8 10 8 10 8-3 8-10 8S2 12 2 12Z" />
+                            <circle
+                              cx="12"
+                              cy="12"
+                              r="3"
+                            />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
+
+                    <p className="auth-reset-note">
+                      Your new password must be at least 6 characters long.
+                    </p>
 
                     <button
-                      type="button"
-                      className="password-toggle"
-                      onClick={() =>
-                        setShowPassword(
-                          (prev) => !prev
-                        )
-                      }
-                      aria-label={
-                        showPassword
-                          ? 'Hide password'
-                          : 'Show password'
-                      }
+                      type="submit"
+                      className="auth-submit"
+                      disabled={loading}
                     >
-                      {showPassword ? (
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M3 3l18 18" />
-                          <path d="M10.58 10.58a2 2 0 0 0 2.83 2.83" />
-                          <path d="M9.88 4.24A9.77 9.77 0 0 1 12 4c7 0 10 8 10 8a17.9 17.9 0 0 1-3.17 4.4" />
-                          <path d="M6.61 6.61C3.62 8.59 2 12 2 12s3 8 10 8a9.77 9.77 0 0 0 3.88-.8" />
-                        </svg>
+                      {loading ? (
+                        <div className="auth-spinner"></div>
                       ) : (
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M2 12s3-8 10-8 10 8 10 8-3 8-10 8S2 12 2 12Z" />
-                          <circle
-                            cx="12"
-                            cy="12"
-                            r="3"
-                          />
-                        </svg>
+                        'RESET PASSWORD'
                       )}
                     </button>
-                  </div>
+                  </form>
 
-                  <div className="auth-options">
-                    <label className="remember">
-                      <input type="checkbox" />
-                      <span>
-                        Remember me
-                      </span>
-                    </label>
-
-                    <button
-                      type="button"
-                      className="forgot"
-                      onClick={
-                        handleForgotPassword
-                      }
-                      disabled={
-                        resetLoading
-                      }
-                    >
-                      {resetLoading
-                        ? 'Sending...'
-                        : 'Forgot password?'}
-                    </button>
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="auth-submit"
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <div className="auth-spinner"></div>
-                    ) : (
-                      'SIGN IN'
-                    )}
-                  </button>
-                </form>
-
-                <p className="auth-switch">
-                  Don't have an account?
                   <button
                     type="button"
-                    onClick={switchMode}
+                    className="auth-reset-back"
+                    onClick={() => {
+                      setError(null);
+                      setMessage(null);
+                      setPassword('');
+                      setConfirmPassword('');
+                      setMode('signin');
+
+                      navigate(
+                        '/auth?mode=signin',
+                        {
+                          replace: true
+                        }
+                      );
+                    }}
                   >
-                    Sign up
+                    Back to Sign In
                   </button>
-                </p>
+                </div>
               </div>
             </div>
+          ) : (
+            <div
+              className={`auth-circle ${
+                isSignUp ? 'signup' : ''
+              }`}
+            >
+              <div className="auth-face signin-face">
+                <div className="auth-content">
+                  <h1 className="auth-heading">
+                    Sign In
+                  </h1>
 
-            <div className="auth-face signup-face">
-              <div className="auth-content">
-                <h1 className="auth-heading">
-                  Sign Up
-                </h1>
+                  <p className="auth-subheading">
+                    Welcome back to AI Interviewer
+                  </p>
 
-                <p className="auth-subheading">
-                  Create your AI Interviewer account
-                </p>
+                  {error && (
+                    <div className="auth-error">
+                      {error}
+                    </div>
+                  )}
 
-                {error && (
-                  <div className="auth-error">
-                    {error}
-                  </div>
-                )}
+                  {message && (
+                    <div className="auth-message">
+                      {message}
+                    </div>
+                  )}
 
-                {message && (
-                  <div className="auth-message">
-                    {message}
-                  </div>
-                )}
-
-                <form
-                  className="auth-form"
-                  onSubmit={handleAuth}
-                >
-                  <input
-                    className="auth-input"
-                    type="text"
-                    value={username}
-                    onChange={(e) =>
-                      setUsername(
-                        e.target.value
-                      )
-                    }
-                    placeholder="Username"
-                    autoComplete="username"
-                    minLength={3}
-                    maxLength={30}
-                    required
-                  />
-
-                  <input
-                    className="auth-input"
-                    type="email"
-                    value={email}
-                    onChange={(e) =>
-                      setEmail(e.target.value)
-                    }
-                    placeholder="Email address"
-                    autoComplete="email"
-                    required
-                  />
-
-                  <div className="auth-password-wrap">
+                  <form
+                    className="auth-form"
+                    onSubmit={handleAuth}
+                  >
                     <input
                       className="auth-input"
-                      type={
-                        showPassword
-                          ? 'text'
-                          : 'password'
-                      }
-                      value={password}
+                      type="email"
+                      value={email}
                       onChange={(e) =>
-                        setPassword(e.target.value)
-                      }
-                      placeholder="Password"
-                      autoComplete="new-password"
-                      required
-                    />
-
-                    <button
-                      type="button"
-                      className="password-toggle"
-                      onClick={() =>
-                        setShowPassword(
-                          (prev) => !prev
-                        )
-                      }
-                      aria-label={
-                        showPassword
-                          ? 'Hide password'
-                          : 'Show password'
-                      }
-                    >
-                      {showPassword ? (
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M3 3l18 18" />
-                          <path d="M10.58 10.58a2 2 0 0 0 2.83 2.83" />
-                          <path d="M9.88 4.24A9.77 9.77 0 0 1 12 4c7 0 10 8 10 8a17.9 17.9 0 0 1-3.17 4.4" />
-                          <path d="M6.61 6.61C3.62 8.59 2 12 2 12s3 8 10 8a9.77 9.77 0 0 0 3.88-.8" />
-                        </svg>
-                      ) : (
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M2 12s3-8 10-8 10 8 10 8-3 8-10 8S2 12 2 12Z" />
-                          <circle
-                            cx="12"
-                            cy="12"
-                            r="3"
-                          />
-                        </svg>
-                      )}
-                    </button>
-                  </div>
-
-                  <div className="auth-password-wrap">
-                    <input
-                      className="auth-input"
-                      type={
-                        showConfirmPassword
-                          ? 'text'
-                          : 'password'
-                      }
-                      value={confirmPassword}
-                      onChange={(e) =>
-                        setConfirmPassword(
+                        setEmail(
                           e.target.value
                         )
                       }
-                      placeholder="Confirm password"
-                      autoComplete="new-password"
+                      placeholder="Email address"
+                      autoComplete="email"
                       required
                     />
 
+                    <div className="auth-password-wrap">
+                      <input
+                        className="auth-input"
+                        type={
+                          showPassword
+                            ? 'text'
+                            : 'password'
+                        }
+                        value={password}
+                        onChange={(e) =>
+                          setPassword(
+                            e.target.value
+                          )
+                        }
+                        placeholder="Password"
+                        autoComplete="current-password"
+                        required
+                      />
+
+                      <button
+                        type="button"
+                        className="password-toggle"
+                        onClick={() =>
+                          setShowPassword(
+                            (prev) => !prev
+                          )
+                        }
+                        aria-label={
+                          showPassword
+                            ? 'Hide password'
+                            : 'Show password'
+                        }
+                      >
+                        {showPassword ? (
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M3 3l18 18" />
+                            <path d="M10.58 10.58a2 2 0 0 0 2.83 2.83" />
+                            <path d="M9.88 4.24A9.77 9.77 0 0 1 12 4c7 0 10 8 10 8a17.9 17.9 0 0 1-3.17 4.4" />
+                            <path d="M6.61 6.61C3.62 8.59 2 12 2 12s3 8 10 8a9.77 9.77 0 0 0 3.88-.8" />
+                          </svg>
+                        ) : (
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M2 12s3-8 10-8 10 8 10 8-3 8-10 8S2 12 2 12Z" />
+                            <circle
+                              cx="12"
+                              cy="12"
+                              r="3"
+                            />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
+
+                    <div className="auth-options">
+                      <label className="remember">
+                        <input
+                          type="checkbox"
+                        />
+
+                        <span>
+                          Remember me
+                        </span>
+                      </label>
+
+                      <button
+                        type="button"
+                        className="forgot"
+                        onClick={
+                          handleForgotPassword
+                        }
+                        disabled={
+                          resetLoading
+                        }
+                      >
+                        {resetLoading
+                          ? 'Sending...'
+                          : 'Forgot password?'}
+                      </button>
+                    </div>
+
                     <button
-                      type="button"
-                      className="password-toggle"
-                      onClick={() =>
-                        setShowConfirmPassword(
-                          (prev) => !prev
-                        )
-                      }
-                      aria-label={
-                        showConfirmPassword
-                          ? 'Hide confirm password'
-                          : 'Show confirm password'
-                      }
+                      type="submit"
+                      className="auth-submit"
+                      disabled={loading}
                     >
-                      {showConfirmPassword ? (
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M3 3l18 18" />
-                          <path d="M10.58 10.58a2 2 0 0 0 2.83 2.83" />
-                          <path d="M9.88 4.24A9.77 9.77 0 0 1 12 4c7 0 10 8 10 8a17.9 17.9 0 0 1-3.17 4.4" />
-                          <path d="M6.61 6.61C3.62 8.59 2 12 2 12s3 8 10 8a9.77 9.77 0 0 0 3.88-.8" />
-                        </svg>
+                      {loading ? (
+                        <div className="auth-spinner"></div>
                       ) : (
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M2 12s3-8 10-8 10 8 10 8-3 8-10 8S2 12 2 12Z" />
-                          <circle
-                            cx="12"
-                            cy="12"
-                            r="3"
-                          />
-                        </svg>
+                        'SIGN IN'
                       )}
                     </button>
-                  </div>
+                  </form>
 
-                  <button
-                    type="submit"
-                    className="auth-submit"
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <div className="auth-spinner"></div>
-                    ) : (
-                      'CREATE ACCOUNT'
-                    )}
-                  </button>
-                </form>
+                  <p className="auth-switch">
+                    Don't have an account?
 
-                <p className="auth-switch">
-                  Already have an account?
-                  <button
-                    type="button"
-                    onClick={switchMode}
+                    <button
+                      type="button"
+                      onClick={
+                        switchMode
+                      }
+                    >
+                      Sign up
+                    </button>
+                  </p>
+                </div>
+              </div>
+
+              <div className="auth-face signup-face">
+                <div className="auth-content">
+                  <h1 className="auth-heading">
+                    Sign Up
+                  </h1>
+
+                  
+
+                  {error && (
+                    <div className="auth-error">
+                      {error}
+                    </div>
+                  )}
+
+                  {message && (
+                    <div className="auth-message">
+                      {message}
+                    </div>
+                  )}
+
+                  <form
+                    className="auth-form"
+                    onSubmit={handleAuth}
                   >
-                    Sign in
-                  </button>
-                </p>
+                    <input
+                      className="auth-input"
+                      type="text"
+                      value={username}
+                      onChange={(e) =>
+                        setUsername(
+                          e.target.value
+                        )
+                      }
+                      placeholder="Username"
+                      autoComplete="username"
+                      minLength={3}
+                      maxLength={30}
+                      required
+                    />
+
+                    <input
+                      className="auth-input"
+                      type="email"
+                      value={email}
+                      onChange={(e) =>
+                        setEmail(
+                          e.target.value
+                        )
+                      }
+                      placeholder="Email address"
+                      autoComplete="email"
+                      required
+                    />
+
+                    <div className="auth-password-wrap">
+                      <input
+                        className="auth-input"
+                        type={
+                          showPassword
+                            ? 'text'
+                            : 'password'
+                        }
+                        value={password}
+                        onChange={(e) =>
+                          setPassword(
+                            e.target.value
+                          )
+                        }
+                        placeholder="Password"
+                        autoComplete="new-password"
+                        required
+                      />
+
+                      <button
+                        type="button"
+                        className="password-toggle"
+                        onClick={() =>
+                          setShowPassword(
+                            (prev) => !prev
+                          )
+                        }
+                        aria-label={
+                          showPassword
+                            ? 'Hide password'
+                            : 'Show password'
+                        }
+                      >
+                        {showPassword ? (
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M3 3l18 18" />
+                            <path d="M10.58 10.58a2 2 0 0 0 2.83 2.83" />
+                            <path d="M9.88 4.24A9.77 9.77 0 0 1 12 4c7 0 10 8 10 8a17.9 17.9 0 0 1-3.17 4.4" />
+                            <path d="M6.61 6.61C3.62 8.59 2 12 2 12s3 8 10 8a9.77 9.77 0 0 0 3.88-.8" />
+                          </svg>
+                        ) : (
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M2 12s3-8 10-8 10 8 10 8-3 8-10 8-10-8-10-8Z" />
+                            <circle
+                              cx="12"
+                              cy="12"
+                              r="3"
+                            />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
+
+                    <div className="auth-password-wrap">
+                      <input
+                        className="auth-input"
+                        type={
+                          showConfirmPassword
+                            ? 'text'
+                            : 'password'
+                        }
+                        value={
+                          confirmPassword
+                        }
+                        onChange={(e) =>
+                          setConfirmPassword(
+                            e.target.value
+                          )
+                        }
+                        placeholder="Confirm password"
+                        autoComplete="new-password"
+                        required
+                      />
+
+                      <button
+                        type="button"
+                        className="password-toggle"
+                        onClick={() =>
+                          setShowConfirmPassword(
+                            (prev) =>
+                              !prev
+                          )
+                        }
+                        aria-label={
+                          showConfirmPassword
+                            ? 'Hide confirm password'
+                            : 'Show confirm password'
+                        }
+                      >
+                        {showConfirmPassword ? (
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M3 3l18 18" />
+                            <path d="M10.58 10.58a2 2 0 0 0 2.83 2.83" />
+                            <path d="M9.88 4.24A9.77 9.77 0 0 1 12 4c7 0 10 8 10 8a17.9 17.9 0 0 1-3.17 4.4" />
+                            <path d="M6.61 6.61C3.62 8.59 2 12 2 12s3 8 10 8a9.77 9.77 0 0 0 3.88-.8" />
+                          </svg>
+                        ) : (
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M2 12s3-8 10-8 10 8 10 8-3 8-10 8-10-8-10-8Z" />
+                            <circle
+                              cx="12"
+                              cy="12"
+                              r="3"
+                            />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="auth-submit"
+                      disabled={loading}
+                    >
+                      {loading ? (
+                        <div className="auth-spinner"></div>
+                      ) : (
+                        'CREATE ACCOUNT'
+                      )}
+                    </button>
+                  </form>
+
+                  <p className="auth-switch">
+                    Already have an account?
+
+                    <button
+                      type="button"
+                      onClick={
+                        switchMode
+                      }
+                    >
+                      Sign in
+                    </button>
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
+          )}
+
         </div>
       </div>
     </>

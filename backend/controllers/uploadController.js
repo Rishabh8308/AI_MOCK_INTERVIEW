@@ -368,3 +368,217 @@ export const uploadRecording = async (req, res) => {
         });
     }
 };
+
+export const getRecording = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (!id) {
+            return res.status(400).json({
+                error: 'Interview ID is required'
+            });
+        }
+
+        if (!req.user?.id) {
+            return res.status(401).json({
+                error: 'Authentication required'
+            });
+        }
+
+        const {
+            data: interview,
+            error: interviewError
+        } = await supabase
+            .from('AI_MOCK')
+            .select(
+                'id, user_id, recording_path, recording_mode'
+            )
+            .eq('id', id)
+            .eq('user_id', req.user.id)
+            .single();
+
+        if (interviewError) {
+            console.error(
+                'Interview lookup error:',
+                interviewError
+            );
+
+            return res.status(404).json({
+                error: 'Interview not found'
+            });
+        }
+
+        if (!interview) {
+            return res.status(404).json({
+                error: 'Interview not found'
+            });
+        }
+
+        if (!interview.recording_path) {
+            return res.status(404).json({
+                error: 'No recording is associated with this interview'
+            });
+        }
+
+        let recordingPath =
+            String(interview.recording_path).trim();
+
+        if (recordingPath.endsWith('/manifest.json')) {
+            recordingPath =
+                recordingPath.substring(
+                    0,
+                    recordingPath.length -
+                        '/manifest.json'.length
+                );
+        }
+
+        if (recordingPath.endsWith('/')) {
+            recordingPath =
+                recordingPath.slice(0, -1);
+        }
+
+        const manifestPath =
+            `${recordingPath}/manifest.json`;
+
+        const {
+            data: manifestBlob,
+            error: manifestError
+        } = await supabase.storage
+            .from(BUCKET_NAME)
+            .download(manifestPath);
+
+        if (manifestError) {
+            console.error(
+                'Manifest download error:',
+                manifestError
+            );
+
+            return res.status(404).json({
+                error: 'Recording manifest not found',
+                details: manifestError.message
+            });
+        }
+
+        const manifestText =
+            await manifestBlob.text();
+
+        let manifest;
+
+        try {
+            manifest =
+                JSON.parse(manifestText);
+        } catch (error) {
+            console.error(
+                'Manifest JSON parse error:',
+                error
+            );
+
+            return res.status(500).json({
+                error: 'Invalid recording manifest'
+            });
+        }
+
+        const totalChunks =
+            Number(manifest.totalChunks);
+
+        if (
+            !Number.isInteger(totalChunks) ||
+            totalChunks <= 0
+        ) {
+            return res.status(500).json({
+                error: 'Invalid chunk information in recording manifest'
+            });
+        }
+
+        const chunkPaths = [];
+
+        for (
+            let index = 0;
+            index < totalChunks;
+            index++
+        ) {
+            const chunkNumber =
+                String(index + 1).padStart(6, '0');
+
+            chunkPaths.push(
+                `${recordingPath}/chunk-${chunkNumber}.webm`
+            );
+        }
+
+        const signedChunks = [];
+
+        for (const chunkPath of chunkPaths) {
+            const {
+                data: signedData,
+                error: signedError
+            } = await supabase.storage
+                .from(BUCKET_NAME)
+                .createSignedUrl(
+                    chunkPath,
+                    60 * 60
+                );
+
+            if (signedError) {
+                console.error(
+                    'Signed URL error:',
+                    signedError
+                );
+
+                return res.status(500).json({
+                    error:
+                        'Failed to create recording access URL',
+                    details:
+                        signedError.message
+                });
+            }
+
+            if (!signedData?.signedUrl) {
+                return res.status(500).json({
+                    error:
+                        'Recording access URL was not created'
+                });
+            }
+
+            signedChunks.push({
+                index:
+                    signedChunks.length,
+                path: chunkPath,
+                url:
+                    signedData.signedUrl
+            });
+        }
+
+        return res.json({
+            success: true,
+            interviewId: interview.id,
+            recordingMode:
+                interview.recording_mode ||
+                manifest.recordingMode ||
+                'audio',
+            mimeType:
+                manifest.mimeType ||
+                (
+                    interview.recording_mode ===
+                    'video'
+                        ? 'video/webm'
+                        : 'audio/webm'
+                ),
+            totalChunks,
+            recordingPath,
+            manifestPath,
+            chunks: signedChunks
+        });
+    } catch (error) {
+        console.error(
+            'Get recording error:',
+            error
+        );
+
+        return res.status(500).json({
+            success: false,
+            error:
+                error.message ||
+                'Unexpected recording retrieval error'
+        });
+    }
+};

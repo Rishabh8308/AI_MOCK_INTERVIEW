@@ -16,23 +16,7 @@ const AboutUs = () => {
             <span>Mock Interview</span>
           </button>
 
-          <nav className="about-nav-links">
-            <button
-              type="button"
-              className="about-nav-link active"
-              onClick={() => navigate('/about')}
-            >
-              About Us
-            </button>
-
-            <button
-              type="button"
-              className="about-nav-link"
-              onClick={() => navigate('/')}
-            >
-              Home
-            </button>
-          </nav>
+        
 
           <button
             type="button"

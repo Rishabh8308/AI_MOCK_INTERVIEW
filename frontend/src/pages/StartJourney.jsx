@@ -2,6 +2,19 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 
+const avatarColors = [
+  '#4285F4',
+  '#7B1FA2',
+  '#00897B',
+  '#5E35B1',
+  '#3949AB',
+  '#C2185B',
+  '#00838F',
+  '#6D4C41',
+  '#546E7A',
+  '#7CB342'
+];
+
 const GITHUB_REPO_URL =
   'https://github.com/Rishabh8308/AI_MOCK_INTERVIEW';
 
@@ -60,9 +73,52 @@ const StartJourney = () => {
     );
   };
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    setUser(null);
+  const getAvatarName = () => {
+    if (!user) {
+      return 'User';
+    }
+
+    const metadata = user.user_metadata || {};
+
+    return (
+      metadata.username ||
+      metadata.full_name ||
+      metadata.name ||
+      user.email?.split('@')[0] ||
+      'User'
+    );
+  };
+
+  const getAvatarInitial = () => {
+    const name = getAvatarName();
+
+    return (
+      name.charAt(0).toUpperCase() ||
+      'U'
+    );
+  };
+
+  const getAvatarColor = () => {
+    if (!user) {
+      return avatarColors[0];
+    }
+
+    const value =
+      user.id ||
+      user.email ||
+      'user';
+
+    let hash = 0;
+
+    for (let i = 0; i < value.length; i++) {
+      hash =
+        value.charCodeAt(i) +
+        ((hash << 5) - hash);
+    }
+
+    return avatarColors[
+      Math.abs(hash) % avatarColors.length
+    ];
   };
 
   if (loading) {
@@ -84,7 +140,7 @@ const StartJourney = () => {
           onClick={() => navigate('/')}
         >
           <span className="start-journey-logo-mark">
-            AI
+            O
           </span>
 
           <span>AI-MOCK-INTERVIEW</span>
@@ -96,7 +152,9 @@ const StartJourney = () => {
               <button
                 type="button"
                 className="start-journey-nav-button"
-                onClick={() => navigate('/dashboard')}
+                onClick={() =>
+                  navigate('/dashboard')
+                }
               >
                 Dashboard
               </button>
@@ -104,17 +162,51 @@ const StartJourney = () => {
               <button
   type="button"
   className="start-journey-nav-button"
-  onClick={() => navigate('/about')}
+  onClick={() => navigate('/dashboard/history')}
 >
-  About Us
+  History
 </button>
 
               <button
                 type="button"
                 className="start-journey-nav-button"
-                onClick={handleLogout}
+                onClick={() =>
+                  navigate('/about')
+                }
               >
-                Log Out
+                About Us
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  navigate('/account')
+                }
+                aria-label="Open account"
+                title="Account"
+                style={{
+                  width: '38px',
+                  height: '38px',
+                  minWidth: '38px',
+                  padding: 0,
+                  marginLeft: '0.25rem',
+                  borderRadius: '50%',
+                  border: 'none',
+                  background:
+                    getAvatarColor(),
+                  color: '#fff',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '1rem',
+                  fontWeight: 500,
+                  fontFamily:
+                    'Arial, sans-serif',
+                  cursor: 'pointer',
+                  boxSizing: 'border-box'
+                }}
+              >
+                {getAvatarInitial()}
               </button>
             </>
           ) : (
@@ -123,7 +215,9 @@ const StartJourney = () => {
                 type="button"
                 className="start-journey-nav-button"
                 onClick={() =>
-                  navigate('/auth?mode=signin')
+                  navigate(
+                    '/auth?mode=signin'
+                  )
                 }
               >
                 Sign In
@@ -133,7 +227,9 @@ const StartJourney = () => {
                 type="button"
                 className="start-journey-primary-button"
                 onClick={() =>
-                  navigate('/auth?mode=signup')
+                  navigate(
+                    '/auth?mode=signup'
+                  )
                 }
               >
                 Get Started
@@ -168,13 +264,14 @@ const StartJourney = () => {
                   <button
                     type="button"
                     className="start-journey-main-button"
-                    onClick={() => navigate('/interview-mode')}
+                    onClick={() =>
+                      navigate(
+                        '/interview-mode'
+                      )
+                    }
                   >
                     Start Interview
-                    <span>→</span>
                   </button>
-
-                  
                 </div>
               </>
             ) : (
@@ -234,7 +331,9 @@ const StartJourney = () => {
             <h2>
               Practice with purpose.
               <br />
-              <span>Improve with every interview.</span>
+              <span>
+                Improve with every interview.
+              </span>
             </h2>
           </div>
 
@@ -254,7 +353,9 @@ const StartJourney = () => {
                 <span>01</span>
                 <div>
                   <strong>Technical</strong>
-                  <p>Role-focused interview practice</p>
+                  <p>
+                    Role-focused interview practice
+                  </p>
                 </div>
               </div>
 
@@ -262,7 +363,9 @@ const StartJourney = () => {
                 <span>02</span>
                 <div>
                   <strong>Behavioral</strong>
-                  <p>Realistic communication practice</p>
+                  <p>
+                    Realistic communication practice
+                  </p>
                 </div>
               </div>
 
@@ -270,7 +373,9 @@ const StartJourney = () => {
                 <span>03</span>
                 <div>
                   <strong>AI Feedback</strong>
-                  <p>Detailed performance evaluation</p>
+                  <p>
+                    Detailed performance evaluation
+                  </p>
                 </div>
               </div>
 
@@ -278,7 +383,9 @@ const StartJourney = () => {
                 <span>04</span>
                 <div>
                   <strong>Progress</strong>
-                  <p>Review your previous sessions</p>
+                  <p>
+                    Review your previous sessions
+                  </p>
                 </div>
               </div>
             </div>
@@ -370,8 +477,6 @@ const StartJourney = () => {
             </article>
           </div>
         </section>
-
-        
       </main>
     </div>
   );

@@ -1,54 +1,48 @@
-import { Routes, Route, useNavigate } from 'react-router-dom';
-import AuthPage from './pages/AuthPage';
-import ProtectedRoute from './components/ProtectedRoute';
-import { supabase } from './lib/supabaseClient';
-import { useState, useEffect } from 'react';
+import { Routes, Route, useNavigate } from "react-router-dom";
+import AuthPage from "./pages/AuthPage";
+import ProtectedRoute from "./components/ProtectedRoute";
+import { supabase } from "./lib/supabaseClient";
+import { useState, useEffect } from "react";
 
-import Setup from './components/Setup';
-import Chat from './components/Chat';
-import VoiceInterview from './components/VoiceInterview';
-import EvaluationReport from './components/EvaluationReport';
-import Dashboard from './pages/Dashboard';
-import StartJourney from './pages/StartJourney';
-import AboutUs from './pages/AboutUs';
-import InterviewMode from './pages/InterviewMode';
+import Setup from "./components/Setup";
+import Chat from "./components/Chat";
+import VoiceInterview from "./components/VoiceInterview";
+import EvaluationReport from "./components/EvaluationReport";
+import Dashboard from "./pages/Dashboard";
+import StartJourney from "./pages/StartJourney";
+import AboutUs from "./pages/AboutUs";
+import InterviewMode from "./pages/InterviewMode";
+import Account from "./pages/Account";
+import History from "./pages/History";
+import InterviewDetails from "./pages/InterviewDetails";
+import RecordingViewer from "./pages/RecordingViewer";
 
-const API_URL =
-  import.meta.env.VITE_API_URL || '';
+const API_URL = import.meta.env.VITE_API_URL || "";
 
 function App() {
   const navigate = useNavigate();
 
-  const [view, setView] = useState('setup');
+  const [view, setView] = useState("setup");
   const [sessionId, setSessionId] = useState(null);
   const [reportData, setReportData] = useState(null);
-  const [firstMsg, setFirstMsg] = useState('');
-  const [interviewType, setInterviewType] =
-    useState('Technical');
-  const [pressureMode, setPressureMode] =
-    useState(false);
-  const [assessmentMode, setAssessmentMode] =
-    useState('technical');
-  const [voiceRecordingMode, setVoiceRecordingMode] =
-    useState('audio');
-  const [screenStream, setScreenStream] =
-    useState(null);
+  const [firstMsg, setFirstMsg] = useState("");
+  const [interviewType, setInterviewType] = useState("Technical");
+  const [pressureMode, setPressureMode] = useState(false);
+  const [assessmentMode, setAssessmentMode] = useState("technical");
+  const [voiceRecordingMode, setVoiceRecordingMode] = useState("audio");
+  const [screenStream, setScreenStream] = useState(null);
 
-  const [theme, setTheme] = useState(
-    localStorage.getItem('theme') || 'dark'
-  );
+  const [theme, setTheme] = useState(localStorage.getItem("theme") || "dark");
 
   const getAuthToken = async () => {
     const {
-      data: { session }
+      data: { session },
     } = await supabase.auth.getSession();
 
     if (!session?.access_token) {
-      alert(
-        'Your session has expired. Please sign in again.'
-      );
+      alert("Your session has expired. Please sign in again.");
 
-      navigate('/auth');
+      navigate("/auth");
 
       return null;
     }
@@ -57,39 +51,22 @@ function App() {
   };
 
   useEffect(() => {
-    document.documentElement.setAttribute(
-      'data-theme',
-      theme
-    );
+    document.documentElement.setAttribute("data-theme", theme);
 
-    localStorage.setItem(
-      'theme',
-      theme
-    );
+    localStorage.setItem("theme", theme);
   }, [theme]);
 
   const toggleTheme = () => {
-    setTheme((prev) =>
-      prev === 'dark'
-        ? 'light'
-        : 'dark'
-    );
+    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
   };
 
-  const handleStartSession = (
-    sid,
-    replyStr,
-    targetType,
-    isPressureMode
-  ) => {
+  const handleStartSession = (sid, replyStr, targetType, isPressureMode) => {
     if (screenStream) {
-      screenStream
-        .getTracks()
-        .forEach((track) => {
-          try {
-            track.stop();
-          } catch {}
-        });
+      screenStream.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch {}
+      });
 
       setScreenStream(null);
     }
@@ -98,188 +75,110 @@ function App() {
     setFirstMsg(replyStr);
     setInterviewType(targetType);
     setPressureMode(isPressureMode);
-    setAssessmentMode('technical');
-    setView('chat');
+    setAssessmentMode("technical");
+    setView("chat");
   };
 
   const handleStartVoiceSession = (
     sid,
     replyStr,
     selectedRecordingMode,
-    selectedScreenStream
+    selectedScreenStream,
   ) => {
-    console.log(
-      'Starting voice interview...'
-    );
+    console.log("Starting voice interview...");
 
-    console.log(
-      'Session ID:',
-      sid
-    );
+    console.log("Session ID:", sid);
 
-    console.log(
-      'Recording mode:',
-      selectedRecordingMode
-    );
+    console.log("Recording mode:", selectedRecordingMode);
 
-    console.log(
-      'Received screen stream:',
-      selectedScreenStream
-    );
+    console.log("Received screen stream:", selectedScreenStream);
 
-    if (
-      selectedRecordingMode ===
-      'video'
-    ) {
-      const videoTrack =
-        selectedScreenStream
-          ?.getVideoTracks?.()[0];
+    if (selectedRecordingMode === "video") {
+      const videoTrack = selectedScreenStream?.getVideoTracks?.()[0];
 
       if (
         !selectedScreenStream ||
         !videoTrack ||
-        videoTrack.readyState !==
-          'live'
+        videoTrack.readyState !== "live"
       ) {
-        console.error(
-          'Invalid screen stream received.'
-        );
+        console.error("Invalid screen stream received.");
 
         alert(
-          'Screen sharing was not provided. Please restart the interview and allow screen sharing.'
+          "Screen sharing was not provided. Please restart the interview and allow screen sharing.",
         );
 
         return;
       }
 
-      console.log(
-        'Live screen-share track received:',
-        videoTrack
-      );
+      console.log("Live screen-share track received:", videoTrack);
     }
 
     setSessionId(sid);
     setFirstMsg(replyStr);
-    setAssessmentMode('voice');
+    setAssessmentMode("voice");
 
-    setVoiceRecordingMode(
-      selectedRecordingMode ||
-        'audio'
-    );
+    setVoiceRecordingMode(selectedRecordingMode || "audio");
 
-    setScreenStream(
-      selectedScreenStream ||
-        null
-    );
+    setScreenStream(selectedScreenStream || null);
 
-    setView('voice');
+    setView("voice");
   };
 
-  const handleEndSession = async (
-    allMessages
-  ) => {
+  const handleEndSession = async (allMessages) => {
     try {
-      const fillerWords = [
-        'um',
-        'uh',
-        'like',
-        'actually',
-        'basically',
-        'so'
-      ];
+      const fillerWords = ["um", "uh", "like", "actually", "basically", "so"];
 
       let totalFillers = 0;
 
-      const userTranscript =
-        allMessages
-          .filter(
-            (m) =>
-              m.sender ===
-              'user'
-          )
-          .map(
-            (m) =>
-              m.text.toLowerCase()
-          )
-          .join(' ');
+      const userTranscript = allMessages
+        .filter((m) => m.sender === "user")
+        .map((m) => m.text.toLowerCase())
+        .join(" ");
 
-      fillerWords.forEach(
-        (word) => {
-          const regex =
-            new RegExp(
-              `\\b${word}\\b`,
-              'g'
-            );
+      fillerWords.forEach((word) => {
+        const regex = new RegExp(`\\b${word}\\b`, "g");
 
-          const matches =
-            userTranscript.match(
-              regex
-            );
+        const matches = userTranscript.match(regex);
 
-          if (matches) {
-            totalFillers +=
-              matches.length;
-          }
+        if (matches) {
+          totalFillers += matches.length;
         }
-      );
+      });
 
-      console.log(
-        'Ending normal interview...'
-      );
+      console.log("Ending normal interview...");
 
-      console.log(
-        'Session ID:',
-        sessionId
-      );
+      console.log("Session ID:", sessionId);
 
-      console.log(
-        'Filler words:',
-        totalFillers
-      );
+      console.log("Filler words:", totalFillers);
 
-      const recordingPath =
-        null;
+      const recordingPath = null;
 
-      const token =
-        await getAuthToken();
+      const token = await getAuthToken();
 
       if (!token) {
         return;
       }
 
-      const response =
-        await fetch(
-          `${API_URL}/api/end`,
-          {
-            method:
-              'POST',
+      const response = await fetch(`${API_URL}/api/end`, {
+        method: "POST",
 
-            headers: {
-              'Content-Type':
-                'application/json',
+        headers: {
+          "Content-Type": "application/json",
 
-              Authorization:
-                `Bearer ${token}`
-            },
+          Authorization: `Bearer ${token}`,
+        },
 
-            body:
-              JSON.stringify({
-                sessionId,
-                fillerWordsCount:
-                  totalFillers,
-                recordingPath
-              })
-          }
-        );
+        body: JSON.stringify({
+          sessionId,
+          fillerWordsCount: totalFillers,
+          recordingPath,
+        }),
+      });
 
-      const data =
-        await response.json();
+      const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(
-          data.error ||
-            'Failed to generate evaluation report.'
-        );
+        throw new Error(data.error || "Failed to generate evaluation report.");
       }
 
       if (data.finalReport) {
@@ -288,229 +187,131 @@ function App() {
           `⚠️ Filler Word Count: ${totalFillers} detected. ` +
           `(Focus on reducing "um", "uh", "like" for a more professional tone.)\n`;
 
-        setReportData(
-          data.finalReport +
-            fillerAnalysis
-        );
+        setReportData(data.finalReport + fillerAnalysis);
 
-        setView('report');
+        setView("report");
       } else {
-        throw new Error(
-          'The backend did not return a final report.'
-        );
+        throw new Error("The backend did not return a final report.");
       }
     } catch (error) {
-      console.error(
-        'Failed to end session',
-        error
-      );
+      console.error("Failed to end session", error);
 
-      alert(
-        'Failed to generate report. Is your backend running?'
-      );
+      alert("Failed to generate report. Is your backend running?");
     }
   };
 
-  const handleEndVoiceInterview =
-    async (
-      voiceTranscript,
-      recordingPath = null
-    ) => {
-      try {
-        const fillerWords = [
-          'um',
-          'uh',
-          'like',
-          'actually',
-          'basically',
-          'so'
-        ];
+  const handleEndVoiceInterview = async (
+    voiceTranscript,
+    recordingPath = null,
+  ) => {
+    try {
+      const fillerWords = ["um", "uh", "like", "actually", "basically", "so"];
 
-        let totalFillers = 0;
+      let totalFillers = 0;
 
-        const userTranscript =
-          voiceTranscript
-            .filter(
-              (message) =>
-                message.sender ===
-                'user'
-            )
-            .map(
-              (message) =>
-                message.text.toLowerCase()
-            )
-            .join(' ');
+      const userTranscript = voiceTranscript
+        .filter((message) => message.sender === "user")
+        .map((message) => message.text.toLowerCase())
+        .join(" ");
 
-        fillerWords.forEach(
-          (word) => {
-            const regex =
-              new RegExp(
-                `\\b${word}\\b`,
-                'g'
-              );
+      fillerWords.forEach((word) => {
+        const regex = new RegExp(`\\b${word}\\b`, "g");
 
-            const matches =
-              userTranscript.match(
-                regex
-              );
+        const matches = userTranscript.match(regex);
 
-            if (matches) {
-              totalFillers +=
-                matches.length;
-            }
-          }
-        );
-
-        console.log(
-          'Ending voice interview...'
-        );
-
-        console.log(
-          'Session ID:',
-          sessionId
-        );
-
-        console.log(
-          'Voice transcript:',
-          voiceTranscript
-        );
-
-        console.log(
-          'Filler words:',
-          totalFillers
-        );
-
-        console.log(
-          'Recording path:',
-          recordingPath
-        );
-
-        const token =
-          await getAuthToken();
-
-        if (!token) {
-          return;
+        if (matches) {
+          totalFillers += matches.length;
         }
+      });
 
-        const response =
-          await fetch(
-            `${API_URL}/api/end`,
-            {
-              method:
-                'POST',
+      console.log("Ending voice interview...");
 
-              headers: {
-                'Content-Type':
-                  'application/json',
+      console.log("Session ID:", sessionId);
 
-                Authorization:
-                  `Bearer ${token}`
-              },
+      console.log("Voice transcript:", voiceTranscript);
 
-              body:
-                JSON.stringify({
-                  sessionId,
-                  fillerWordsCount:
-                    totalFillers,
-                  recordingPath:
-                    recordingPath ||
-                    null
-                })
-            }
-          );
+      console.log("Filler words:", totalFillers);
 
-        const data =
-          await response.json();
+      console.log("Recording path:", recordingPath);
 
-        if (!response.ok) {
-          throw new Error(
-            data.error ||
-              'Failed to generate evaluation report.'
-          );
-        }
+      const token = await getAuthToken();
 
-        if (data.finalReport) {
-          const fillerAnalysis =
-            `\n\n--- 🔹 COMMUNICATION ANALYSIS ---\n` +
-            `⚠️ Filler Word Count: ${totalFillers} detected. ` +
-            `(Focus on reducing "um", "uh", "like" for a more professional tone.)\n`;
-
-          setReportData(
-            data.finalReport +
-              fillerAnalysis
-          );
-
-          if (screenStream) {
-            screenStream
-              .getTracks()
-              .forEach(
-                (track) => {
-                  try {
-                    track.stop();
-                  } catch {}
-                }
-              );
-
-            console.log(
-              'Screen sharing stream stopped.'
-            );
-
-            setScreenStream(
-              null
-            );
-          }
-
-          setView('report');
-        } else {
-          throw new Error(
-            'The backend did not return a final report.'
-          );
-        }
-      } catch (error) {
-        console.error(
-          'Failed to generate voice evaluation:',
-          error
-        );
-
-        alert(
-          `Failed to generate evaluation report.\n\n${error.message}`
-        );
+      if (!token) {
+        return;
       }
-    };
 
-  useEffect(() => {
-    return () => {
-      if (screenStream) {
-        screenStream
-          .getTracks()
-          .forEach((track) => {
+      const response = await fetch(`${API_URL}/api/end`, {
+        method: "POST",
+
+        headers: {
+          "Content-Type": "application/json",
+
+          Authorization: `Bearer ${token}`,
+        },
+
+        body: JSON.stringify({
+          sessionId,
+          fillerWordsCount: totalFillers,
+          recordingPath: recordingPath || null,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to generate evaluation report.");
+      }
+
+      if (data.finalReport) {
+        const fillerAnalysis =
+          `\n\n--- 🔹 COMMUNICATION ANALYSIS ---\n` +
+          `⚠️ Filler Word Count: ${totalFillers} detected. ` +
+          `(Focus on reducing "um", "uh", "like" for a more professional tone.)\n`;
+
+        setReportData(data.finalReport + fillerAnalysis);
+
+        if (screenStream) {
+          screenStream.getTracks().forEach((track) => {
             try {
               track.stop();
             } catch {}
           });
+
+          console.log("Screen sharing stream stopped.");
+
+          setScreenStream(null);
+        }
+
+        setView("report");
+      } else {
+        throw new Error("The backend did not return a final report.");
+      }
+    } catch (error) {
+      console.error("Failed to generate voice evaluation:", error);
+
+      alert(`Failed to generate evaluation report.\n\n${error.message}`);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (screenStream) {
+        screenStream.getTracks().forEach((track) => {
+          try {
+            track.stop();
+          } catch {}
+        });
       }
     };
   }, []);
 
-  const isInterviewActive =
-    view === 'chat' ||
-    view === 'voice';
+  const isInterviewActive = view === "chat" || view === "voice";
 
   return (
     <Routes>
-      <Route
-        path="/"
-        element={
-          <StartJourney />
-        }
-      />
+      <Route path="/" element={<StartJourney />} />
 
-      <Route
-        path="/auth"
-        element={
-          <AuthPage />
-        }
-      />
+      <Route path="/auth" element={<AuthPage />} />
 
       <Route
         path="/dashboard"
@@ -522,9 +323,40 @@ function App() {
       />
 
       <Route
-        path="/about"
+        path="/dashboard/history"
         element={
-          <AboutUs />
+          <ProtectedRoute>
+            <History />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/dashboard/recording/:id"
+        element={
+          <ProtectedRoute>
+            <RecordingViewer />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/dashboard/interview/:id"
+        element={
+          <ProtectedRoute>
+            <InterviewDetails />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route path="/about" element={<AboutUs />} />
+
+      <Route
+        path="/account"
+        element={
+          <ProtectedRoute>
+            <Account />
+          </ProtectedRoute>
         }
       />
 
@@ -557,26 +389,16 @@ function App() {
                 className="app-wrapper"
                 style={{
                   width:
-                    view === 'chat' &&
-                    [
-                      'Technical',
-                      'Mixed'
-                    ].includes(
-                      interviewType
-                    )
-                      ? '100%'
+                    view === "chat" &&
+                    ["Technical", "Mixed"].includes(interviewType)
+                      ? "100%"
                       : undefined,
 
                   maxWidth:
-                    view === 'chat' &&
-                    [
-                      'Technical',
-                      'Mixed'
-                    ].includes(
-                      interviewType
-                    )
-                      ? '1600px'
-                      : undefined
+                    view === "chat" &&
+                    ["Technical", "Mixed"].includes(interviewType)
+                      ? "1600px"
+                      : undefined,
                 }}
               >
                 {!isInterviewActive && (
@@ -584,135 +406,85 @@ function App() {
                     <button
                       type="button"
                       className="home-button"
-                      onClick={() =>
-                        navigate(-1)
-                      }
+                      onClick={() => navigate(-1)}
                       aria-label="Go Back"
                       title="Back"
                     >
-                      <svg
-  viewBox="0 0 24 24"
-  aria-hidden="true"
->
-  <path
-    d="M19 12H5"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.8"
-    strokeLinecap="round"
-  />
-  <path
-    d="M10 7l-5 5 5 5"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.8"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  />
-</svg>
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                          d="M19 12H5"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          strokeLinecap="round"
+                        />
+                        <path
+                          d="M10 7l-5 5 5 5"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
                     </button>
                   </div>
                 )}
 
-                {view !== 'report' &&
-                  view !== 'voice' && (
-                    <h1 className="title">
-                      AI-Facilitated
-                      Competency
-                      Assessment
-                    </h1>
-                  )}
+                {view !== "report" && view !== "voice" && (
+                  <h1 className="title">
+                    AI-Facilitated Competency Assessment
+                  </h1>
+                )}
 
-                {view === 'setup' && (
+                {view === "setup" && (
                   <Setup
-                    onStart={
-                      handleStartSession
-                    }
-                    onStartVoice={
-                      handleStartVoiceSession
-                    }
+                    onStart={handleStartSession}
+                    onStartVoice={handleStartVoiceSession}
                   />
                 )}
 
-                {view === 'chat' && (
+                {view === "chat" && (
                   <Chat
-                    sessionId={
-                      sessionId
-                    }
-                    initialMessage={
-                      firstMsg
-                    }
-                    interviewType={
-                      interviewType
-                    }
-                    pressureMode={
-                      pressureMode
-                    }
-                    onEndInterview={
-                      handleEndSession
-                    }
+                    sessionId={sessionId}
+                    initialMessage={firstMsg}
+                    interviewType={interviewType}
+                    pressureMode={pressureMode}
+                    onEndInterview={handleEndSession}
                   />
                 )}
 
-                {view === 'voice' && (
+                {view === "voice" && (
                   <VoiceInterview
-                    sessionId={
-                      sessionId
-                    }
-                    initialMessage={
-                      firstMsg
-                    }
-                    recordingMode={
-                      voiceRecordingMode
-                    }
-                    screenStream={
-                      screenStream
-                    }
-                    onEndInterview={
-                      handleEndVoiceInterview
-                    }
+                    sessionId={sessionId}
+                    initialMessage={firstMsg}
+                    recordingMode={voiceRecordingMode}
+                    screenStream={screenStream}
+                    onEndInterview={handleEndVoiceInterview}
                   />
                 )}
 
-                {view === 'report' && (
+                {view === "report" && (
                   <EvaluationReport
-                    rawReport={
-                      reportData
-                    }
+                    rawReport={reportData}
                     onRestart={() => {
-                      if (
-                        screenStream
-                      ) {
-                        screenStream
-                          .getTracks()
-                          .forEach(
-                            (track) => {
-                              try {
-                                track.stop();
-                              } catch {}
-                            }
-                          );
+                      if (screenStream) {
+                        screenStream.getTracks().forEach((track) => {
+                          try {
+                            track.stop();
+                          } catch {}
+                        });
 
-                        setScreenStream(
-                          null
-                        );
+                        setScreenStream(null);
                       }
 
-                      setSessionId(
-                        null
-                      );
+                      setSessionId(null);
 
-                      setFirstMsg(
-                        ''
-                      );
+                      setFirstMsg("");
 
-                      setReportData(
-                        null
-                      );
+                      setReportData(null);
 
-                      setView(
-                        'setup'
-                      );
+                      setView("setup");
                     }}
                   />
                 )}

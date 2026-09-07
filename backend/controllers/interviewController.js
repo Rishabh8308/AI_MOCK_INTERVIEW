@@ -890,6 +890,8 @@ SCORE_JSON:
                     session_id:
                         sessionId,
 
+                    created_at: new Date().toISOString(),    
+
                     recording_mode:
                         recordingMode,
 
