@@ -16,6 +16,7 @@ import Account from "./pages/Account";
 import History from "./pages/History";
 import InterviewDetails from "./pages/InterviewDetails";
 import RecordingViewer from "./pages/RecordingViewer";
+import NotFound from './pages/404';
 
 const API_URL = import.meta.env.VITE_API_URL || "";
 
@@ -359,7 +360,7 @@ function App() {
           </ProtectedRoute>
         }
       />
-
+<Route path="*" element={<NotFound />} />
       <Route
         path="/interview-mode"
         element={

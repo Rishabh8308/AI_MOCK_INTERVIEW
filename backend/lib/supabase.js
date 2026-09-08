@@ -21,4 +21,4 @@ export const supabase = createClient(
   supabaseSecretKey
 );
 
-console.log('✅ Supabase client initialized');
+console.log(' Supabase client initialized');

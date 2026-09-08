@@ -16,7 +16,6 @@ app.use(cors());
 app.use(express.json());
 app.use('/public', express.static('public'));
 
-// Routes
 app.get('/api/health', (req, res) => {
     res.json({
         status: 'ok',

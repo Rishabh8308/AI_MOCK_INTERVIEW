@@ -2,7 +2,6 @@ import { config } from 'dotenv';
 import { fileURLToPath } from 'url';
 import path from 'path';
 
-// This file is imported FIRST so env is populated before any other module loads.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const envPath = path.resolve(__dirname, '..', '.env');
 

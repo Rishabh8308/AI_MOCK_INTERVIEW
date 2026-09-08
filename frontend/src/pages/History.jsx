@@ -8,7 +8,6 @@ const History = () => {
   const [interviews, setInterviews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [openingRecording, setOpeningRecording] = useState(null);
 
   const parseScore = (report) => {
     if (!report) {
@@ -118,69 +117,6 @@ const History = () => {
       hour: '2-digit',
       minute: '2-digit'
     });
-  };
-
-  const openRecording = async (
-    interview,
-    recordingType
-  ) => {
-    if (!interview.recording_path) {
-      alert(
-        'No recording is available for this interview.'
-      );
-      return;
-    }
-
-    try {
-      setOpeningRecording(interview.id);
-
-      let path = String(
-        interview.recording_path
-      );
-
-      if (path.startsWith('AI_MOCK/')) {
-        path = path.substring(
-          'AI_MOCK/'.length
-        );
-      }
-
-      const {
-        data,
-        error: storageError
-      } = await supabase.storage
-        .from('AI_MOCK')
-        .createSignedUrl(
-          path,
-          60 * 60
-        );
-
-      if (storageError) {
-        throw storageError;
-      }
-
-      if (!data?.signedUrl) {
-        throw new Error(
-          'Recording URL was not created.'
-        );
-      }
-
-      window.open(
-        data.signedUrl,
-        '_blank',
-        'noopener,noreferrer'
-      );
-    } catch (err) {
-      console.error(
-        'Failed to open recording:',
-        err
-      );
-
-      alert(
-        `Unable to open the ${recordingType} recording.`
-      );
-    } finally {
-      setOpeningRecording(null);
-    }
   };
 
   useEffect(() => {
@@ -510,10 +446,6 @@ const History = () => {
               const timeText =
                 formatTime(interview);
 
-              const isOpening =
-                openingRecording ===
-                interview.id;
-
               return (
                 <div
                   key={interview.id}
@@ -662,15 +594,8 @@ const History = () => {
                     }}
                   >
                     {recordingType && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          openRecording(
-                            interview,
-                            recordingType
-                          )
-                        }
-                        disabled={isOpening}
+                      <Link
+                        to={`/dashboard/recording/${interview.id}?recording=${recordingType}`}
                         style={{
                           height: '40px',
                           display: 'flex',
@@ -685,12 +610,7 @@ const History = () => {
                           color: '#e2e8f0',
                           fontSize: '0.85rem',
                           fontWeight: 650,
-                          cursor: isOpening
-                            ? 'wait'
-                            : 'pointer',
-                          opacity: isOpening
-                            ? 0.6
-                            : 1
+                          textDecoration: 'none'
                         }}
                       >
                         {recordingType ===
@@ -750,13 +670,11 @@ const History = () => {
                           </svg>
                         )}
 
-                        {isOpening
-                          ? 'Opening...'
-                          : recordingType ===
-                            'audio'
+                        {recordingType ===
+                        'audio'
                           ? 'View Audio'
                           : 'View Video'}
-                      </button>
+                      </Link>
                     )}
 
                     <Link

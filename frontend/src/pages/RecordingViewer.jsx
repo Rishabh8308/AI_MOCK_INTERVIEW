@@ -13,13 +13,11 @@ const RecordingViewer = () => {
   const [mediaUrl, setMediaUrl] = useState(null);
   const [loading, setLoading] = useState(true);
   const [building, setBuilding] = useState(false);
+  const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
 
-  const requestedType =
-    searchParams.get('recording');
-
-  const apiUrl =
-    import.meta.env.VITE_API_URL || '';
+  const requestedType = searchParams.get('recording');
+  const apiUrl = import.meta.env.VITE_API_URL || '';
 
   useEffect(() => {
     let cancelled = false;
@@ -44,26 +42,28 @@ const RecordingViewer = () => {
           `${apiUrl}/api/recording/${id}`,
           {
             headers: {
-              Authorization:
-                `Bearer ${session.access_token}`
+              Authorization: `Bearer ${session.access_token}`
             }
           }
         );
 
-        const data =
-          await response.json();
+        const data = await response.json();
 
         if (!response.ok) {
           throw new Error(
-            data.error ||
-              'Failed to load recording'
+            data.error || 'Failed to load recording'
           );
         }
 
         if (!data.success) {
           throw new Error(
-            data.error ||
-              'Recording could not be loaded'
+            data.error || 'Recording could not be loaded'
+          );
+        }
+
+        if (!data.chunks || !data.chunks.length) {
+          throw new Error(
+            'No recording chunks were found.'
           );
         }
 
@@ -108,27 +108,56 @@ const RecordingViewer = () => {
       try {
         setBuilding(true);
         setError('');
+        setProgress(0);
 
-        const buffers = [];
+        const mimeType =
+          recording.mimeType ||
+          'video/webm';
 
-        for (
-          const chunk of recording.chunks
-        ) {
-          const response = await fetch(
-            chunk.url
-          );
+        const chunks = [...recording.chunks].sort(
+          (a, b) => a.index - b.index
+        );
 
-          if (!response.ok) {
-            throw new Error(
-              `Failed to download chunk ${chunk.index + 1}`
-            );
-          }
+        const buffers = new Array(
+          chunks.length
+        );
 
-          const buffer =
-            await response.arrayBuffer();
+        let completed = 0;
 
-          buffers.push(buffer);
-        }
+        await Promise.all(
+          chunks.map(
+            async (chunk, index) => {
+              const response = await fetch(
+                chunk.url
+              );
+
+              if (!response.ok) {
+                throw new Error(
+                  `Failed to download recording chunk ${chunk.index + 1}`
+                );
+              }
+
+              const buffer =
+                await response.arrayBuffer();
+
+              if (cancelled) {
+                return;
+              }
+
+              buffers[index] = buffer;
+
+              completed += 1;
+
+              setProgress(
+                Math.round(
+                  (completed /
+                    chunks.length) *
+                    100
+                )
+              );
+            }
+          )
+        );
 
         if (cancelled) {
           return;
@@ -137,9 +166,7 @@ const RecordingViewer = () => {
         const blob = new Blob(
           buffers,
           {
-            type:
-              recording.mimeType ||
-              'video/webm'
+            type: mimeType
           }
         );
 
@@ -155,7 +182,8 @@ const RecordingViewer = () => {
 
         if (!cancelled) {
           setError(
-            'Unable to prepare the recording for playback.'
+            err.message ||
+              'Unable to prepare the recording for playback.'
           );
         }
       } finally {
@@ -171,34 +199,25 @@ const RecordingViewer = () => {
       cancelled = true;
 
       if (objectUrl) {
-        URL.revokeObjectURL(
-          objectUrl
-        );
+        URL.revokeObjectURL(objectUrl);
       }
     };
   }, [recording]);
 
-  useEffect(() => {
-    return () => {
-      if (mediaUrl) {
-        URL.revokeObjectURL(
-          mediaUrl
-        );
-      }
-    };
-  }, [mediaUrl]);
-
   const isVideo =
-    requestedType === 'video' ||
-    recording?.recordingMode ===
-      'video' ||
-    recording?.mimeType?.startsWith(
-      'video/'
-    );
+    recording?.recordingMode === 'video' ||
+    recording?.mimeType?.startsWith('video/');
 
-  const isAudio =
-    requestedType === 'audio' ||
-    !isVideo;
+  const isAudio = !isVideo;
+
+  const displayType =
+    requestedType === 'video' && isVideo
+      ? 'Video Recording'
+      : requestedType === 'audio' && isAudio
+      ? 'Audio Recording'
+      : isVideo
+      ? 'Video Recording'
+      : 'Audio Recording';
 
   if (loading) {
     return (
@@ -271,8 +290,7 @@ const RecordingViewer = () => {
                 color: '#a855f7',
                 fontSize: '0.75rem',
                 fontWeight: 700,
-                letterSpacing:
-                  '0.12em',
+                letterSpacing: '0.12em',
                 marginBottom: '0.5rem'
               }}
             >
@@ -285,9 +303,7 @@ const RecordingViewer = () => {
                 fontSize: '2rem'
               }}
             >
-              {isVideo
-                ? 'Video Recording'
-                : 'Audio Recording'}
+              {displayType}
             </h1>
 
             <p
@@ -341,11 +357,40 @@ const RecordingViewer = () => {
 
               <div
                 style={{
-                  color:
-                    'var(--text-muted)'
+                  color: 'var(--text-muted)'
                 }}
               >
                 Preparing your recording...
+              </div>
+
+              <div
+                style={{
+                  width: '280px',
+                  height: '6px',
+                  borderRadius: '999px',
+                  background:
+                    'rgba(255,255,255,0.08)',
+                  overflow: 'hidden'
+                }}
+              >
+                <div
+                  style={{
+                    width: `${progress}%`,
+                    height: '100%',
+                    background: '#a855f7',
+                    transition:
+                      'width 0.2s ease'
+                  }}
+                />
+              </div>
+
+              <div
+                style={{
+                  color: 'var(--text-muted)',
+                  fontSize: '0.85rem'
+                }}
+              >
+                Downloading {progress}%
               </div>
             </div>
           )}
@@ -368,11 +413,17 @@ const RecordingViewer = () => {
                   src={mediaUrl}
                   controls
                   playsInline
+                  preload="metadata"
                   style={{
                     width: '100%',
                     maxHeight: '650px',
                     display: 'block',
                     background: '#000'
+                  }}
+                  onError={() => {
+                    setError(
+                      'The video could not be played. The recording chunks may be corrupted or incompatible with this browser.'
+                    );
                   }}
                 />
               </div>
@@ -406,7 +457,8 @@ const RecordingViewer = () => {
                     style={{
                       width: '90px',
                       height: '90px',
-                      margin: '0 auto 1.5rem',
+                      margin:
+                        '0 auto 1.5rem',
                       borderRadius: '50%',
                       display: 'flex',
                       alignItems: 'center',
@@ -452,8 +504,14 @@ const RecordingViewer = () => {
                     ref={audioRef}
                     src={mediaUrl}
                     controls
+                    preload="metadata"
                     style={{
                       width: '100%'
+                    }}
+                    onError={() => {
+                      setError(
+                        'The audio could not be played. The recording chunks may be corrupted or incompatible with this browser.'
+                      );
                     }}
                   />
                 </div>
