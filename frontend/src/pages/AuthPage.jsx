@@ -451,8 +451,13 @@ const AuthPage = () => {
           pointer-events: none;
         }
 
+        .auth-face.signin-face {
+          pointer-events: ${isSignUp ? 'none' : 'auto'};
+        }
+
         .auth-face.signup-face {
           transform: rotateY(180deg);
+          pointer-events: ${isSignUp ? 'auto' : 'none'};
         }
 
         .auth-content {
@@ -775,6 +780,22 @@ const AuthPage = () => {
           border-radius: 50%;
           border: 1px solid rgba(255, 255, 255, 0.035);
           pointer-events: none;
+        }
+
+        .auth-spinner {
+          width: 18px;
+          height: 18px;
+          margin: 0 auto;
+          border: 2px solid rgba(7, 18, 17, 0.25);
+          border-top-color: #071211;
+          border-radius: 50%;
+          animation: auth-spin 0.7s linear infinite;
+        }
+
+        @keyframes auth-spin {
+          to {
+            transform: rotate(360deg);
+          }
         }
 
         @media (max-width: 600px) {
@@ -1119,7 +1140,7 @@ const AuthPage = () => {
                             <path d="M3 3l18 18" />
                             <path d="M10.58 10.58a2 2 0 0 0 2.83 2.83" />
                             <path d="M9.88 4.24A9.77 9.77 0 0 1 12 4c7 0 10 8 10 8a17.9 17.9 0 0 1-3.17 4.4" />
-                            <path d="M6.61 6.61C3.62 8.59 2 12 2 12s3 8 10 8a9.77 9.77 0 0 0 3.88-.8" />
+                            <path d="M6.61 6.61C3.62 8.59 2 12 2 12s3 8 10 8 10-8 10-8" />
                           </svg>
                         ) : (
                           <svg
@@ -1143,10 +1164,7 @@ const AuthPage = () => {
 
                     <div className="auth-options">
                       <label className="remember">
-                        <input
-                          type="checkbox"
-                        />
-
+                        <input type="checkbox" />
                         <span>
                           Remember me
                         </span>
@@ -1186,9 +1204,7 @@ const AuthPage = () => {
 
                     <button
                       type="button"
-                      onClick={
-                        switchMode
-                      }
+                      onClick={switchMode}
                     >
                       Sign up
                     </button>
@@ -1201,8 +1217,6 @@ const AuthPage = () => {
                   <h1 className="auth-heading">
                     Sign Up
                   </h1>
-
-                  
 
                   {error && (
                     <div className="auth-error">
@@ -1365,7 +1379,7 @@ const AuthPage = () => {
                             <path d="M3 3l18 18" />
                             <path d="M10.58 10.58a2 2 0 0 0 2.83 2.83" />
                             <path d="M9.88 4.24A9.77 9.77 0 0 1 12 4c7 0 10 8 10 8a17.9 17.9 0 0 1-3.17 4.4" />
-                            <path d="M6.61 6.61C3.62 8.59 2 12 2 12s3 8 10 8a9.77 9.77 0 0 0 3.88-.8" />
+                            <path d="M6.61 6.61C3.62 6.61 3.62 12 3.62 12s3 8 10 8a9.77 9.77 0 0 0 3.88-.8" />
                           </svg>
                         ) : (
                           <svg
@@ -1405,9 +1419,7 @@ const AuthPage = () => {
 
                     <button
                       type="button"
-                      onClick={
-                        switchMode
-                      }
+                      onClick={switchMode}
                     >
                       Sign in
                     </button>

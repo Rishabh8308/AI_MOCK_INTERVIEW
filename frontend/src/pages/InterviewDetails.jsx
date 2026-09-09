@@ -1,14 +1,25 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import {
+  useLocation,
+  useParams,
+  Link,
+  useNavigate
+} from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 
 const InterviewDetails = () => {
   const { id } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
 
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const isAdminViewer =
+    location.pathname.startsWith('/admin/interview/');
+
+  const apiUrl = import.meta.env.VITE_API_URL || '';
 
   const parseScores = (report) => {
     const defaultScores = {
@@ -35,7 +46,8 @@ const InterviewDetails = () => {
       const scores = JSON.parse(match[1]);
 
       return {
-        overall: Number(scores.overall) || 0,
+        overall:
+          Number(scores.overall) || 0,
         communication:
           Number(scores.communication) || 0,
         technical:
@@ -82,18 +94,46 @@ const InterviewDetails = () => {
           return;
         }
 
-        const {
-          data,
-          error: queryError
-        } = await supabase
-          .from('AI_MOCK')
-          .select('*')
-          .eq('id', id)
-          .eq('user_id', session.user.id)
-          .single();
+        let data;
 
-        if (queryError) {
-          throw queryError;
+        if (isAdminViewer) {
+          const response = await fetch(
+            `${apiUrl}/api/admin/interview/${id}`,
+            {
+              headers: {
+                Authorization:
+                  `Bearer ${session.access_token}`
+              }
+            }
+          );
+
+          const responseData =
+            await response.json();
+
+          if (!response.ok) {
+            throw new Error(
+              responseData.error ||
+                'Unable to load this interview.'
+            );
+          }
+
+          data = responseData.interview;
+        } else {
+          const {
+            data: interview,
+            error: queryError
+          } = await supabase
+            .from('AI_MOCK')
+            .select('*')
+            .eq('id', id)
+            .eq('user_id', session.user.id)
+            .single();
+
+          if (queryError) {
+            throw queryError;
+          }
+
+          data = interview;
         }
 
         if (!data) {
@@ -125,7 +165,8 @@ const InterviewDetails = () => {
 
         if (mounted) {
           setError(
-            'Unable to load this interview report.'
+            err.message ||
+              'Unable to load this interview report.'
           );
         }
       } finally {
@@ -140,7 +181,12 @@ const InterviewDetails = () => {
     return () => {
       mounted = false;
     };
-  }, [id, navigate]);
+  }, [
+    id,
+    navigate,
+    isAdminViewer,
+    apiUrl
+  ]);
 
   if (loading) {
     return (
@@ -190,17 +236,16 @@ const InterviewDetails = () => {
               'This interview could not be loaded.'}
           </p>
 
-          <Link
-            to="/dashboard/history"
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
             className="btn btn-secondary"
             style={{
-              marginTop: '2rem',
-              display: 'inline-block',
-              textDecoration: 'none'
+              marginTop: '2rem'
             }}
           >
-            Back to History
-          </Link>
+            Back
+          </button>
         </div>
       </div>
     );
@@ -208,6 +253,11 @@ const InterviewDetails = () => {
 
   const isVoice =
     result.recording_mode === 'voice';
+
+  const recordingMode =
+    result.recording_mode === 'audio'
+      ? 'audio'
+      : 'video';
 
   return (
     <div
@@ -228,18 +278,24 @@ const InterviewDetails = () => {
           flexWrap: 'wrap'
         }}
       >
-        <Link
-          to="/dashboard/history"
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
           style={{
             color: 'var(--text-muted)',
             textDecoration: 'none',
             display: 'flex',
             alignItems: 'center',
-            gap: '0.5rem'
+            gap: '0.5rem',
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            fontSize: '1rem',
+            cursor: 'pointer'
           }}
         >
-          ← Back to History
-        </Link>
+          ← Back
+        </button>
       </div>
 
       <div
@@ -250,6 +306,20 @@ const InterviewDetails = () => {
             'slideUp 0.6s ease forwards'
         }}
       >
+        {isAdminViewer && (
+          <div
+            style={{
+              color: '#a855f7',
+              fontSize: '0.75rem',
+              fontWeight: 700,
+              letterSpacing: '0.12em',
+              marginBottom: '1.5rem'
+            }}
+          >
+            ADMIN · INTERVIEW REVIEW
+          </div>
+        )}
+
         <div
           style={{
             display: 'flex',
@@ -319,6 +389,20 @@ const InterviewDetails = () => {
                 </span>
               )}
             </div>
+
+            {isAdminViewer &&
+              result.user_id && (
+                <p
+                  style={{
+                    color:
+                      'var(--text-muted)',
+                    marginTop: '1rem',
+                    fontSize: '0.85rem'
+                  }}
+                >
+                  User ID: {result.user_id}
+                </p>
+              )}
           </div>
 
           <div
@@ -345,7 +429,8 @@ const InterviewDetails = () => {
             <div
               style={{
                 fontSize: '0.8rem',
-                color: 'var(--text-muted)',
+                color:
+                  'var(--text-muted)',
                 fontWeight: 600
               }}
             >
@@ -388,7 +473,8 @@ const InterviewDetails = () => {
             <div
               style={{
                 fontSize: '0.7rem',
-                color: 'var(--text-muted)',
+                color:
+                  'var(--text-muted)',
                 fontWeight: 600
               }}
             >
@@ -417,7 +503,8 @@ const InterviewDetails = () => {
             <div
               style={{
                 fontSize: '0.7rem',
-                color: 'var(--text-muted)',
+                color:
+                  'var(--text-muted)',
                 fontWeight: 600
               }}
             >
@@ -446,7 +533,8 @@ const InterviewDetails = () => {
             <div
               style={{
                 fontSize: '0.7rem',
-                color: 'var(--text-muted)',
+                color:
+                  'var(--text-muted)',
                 fontWeight: 600
               }}
             >
@@ -475,7 +563,8 @@ const InterviewDetails = () => {
             <div
               style={{
                 fontSize: '0.7rem',
-                color: 'var(--text-muted)',
+                color:
+                  'var(--text-muted)',
                 fontWeight: 600
               }}
             >
@@ -518,23 +607,49 @@ const InterviewDetails = () => {
           </div>
         </div>
 
-        <div
-          style={{
-            marginTop: '3rem',
-            textAlign: 'center'
-          }}
-        >
-          <Link
-            to="/interview-mode"
-            className="btn btn-primary"
+        {result.recording_path && (
+          <div
             style={{
-              width: 'auto',
-              textDecoration: 'none'
+              marginTop: '2rem',
+              display: 'flex',
+              justifyContent: 'center'
             }}
           >
-            Practice Another One
-          </Link>
-        </div>
+            <Link
+              to={
+                isAdminViewer
+                  ? `/admin/recording/${result.id}?recording=${recordingMode}`
+                  : `/dashboard/recording/${result.id}?recording=${recordingMode}`
+              }
+              className="btn btn-secondary"
+              style={{
+                textDecoration: 'none'
+              }}
+            >
+              View Recording
+            </Link>
+          </div>
+        )}
+
+        {!isAdminViewer && (
+          <div
+            style={{
+              marginTop: '3rem',
+              textAlign: 'center'
+            }}
+          >
+            <Link
+              to="/interview-mode"
+              className="btn btn-primary"
+              style={{
+                width: 'auto',
+                textDecoration: 'none'
+              }}
+            >
+              Practice Another One
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   );

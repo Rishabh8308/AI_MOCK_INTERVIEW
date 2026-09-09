@@ -1,9 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams
+} from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 
 const RecordingViewer = () => {
   const { id } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
   const videoRef = useRef(null);
@@ -17,6 +24,10 @@ const RecordingViewer = () => {
   const [error, setError] = useState('');
 
   const requestedType = searchParams.get('recording');
+
+  const isAdminViewer =
+    location.pathname.startsWith('/admin/recording/');
+
   const apiUrl = import.meta.env.VITE_API_URL || '';
 
   useEffect(() => {
@@ -38,11 +49,16 @@ const RecordingViewer = () => {
           return;
         }
 
+        const endpoint = isAdminViewer
+          ? `${apiUrl}/api/admin/recording/${id}`
+          : `${apiUrl}/api/recording/${id}`;
+
         const response = await fetch(
-          `${apiUrl}/api/recording/${id}`,
+          endpoint,
           {
             headers: {
-              Authorization: `Bearer ${session.access_token}`
+              Authorization:
+                `Bearer ${session.access_token}`
             }
           }
         );
@@ -51,17 +67,25 @@ const RecordingViewer = () => {
 
         if (!response.ok) {
           throw new Error(
-            data.error || 'Failed to load recording'
+            data.error ||
+              'Failed to load recording'
           );
         }
 
-        if (!data.success) {
+        if (
+          !isAdminViewer &&
+          !data.success
+        ) {
           throw new Error(
-            data.error || 'Recording could not be loaded'
+            data.error ||
+              'Recording could not be loaded'
           );
         }
 
-        if (!data.chunks || !data.chunks.length) {
+        if (
+          !data.chunks ||
+          !data.chunks.length
+        ) {
           throw new Error(
             'No recording chunks were found.'
           );
@@ -94,7 +118,11 @@ const RecordingViewer = () => {
     return () => {
       cancelled = true;
     };
-  }, [id, apiUrl]);
+  }, [
+    id,
+    apiUrl,
+    isAdminViewer
+  ]);
 
   useEffect(() => {
     if (!recording?.chunks?.length) {
@@ -114,22 +142,22 @@ const RecordingViewer = () => {
           recording.mimeType ||
           'video/webm';
 
-        const chunks = [...recording.chunks].sort(
-          (a, b) => a.index - b.index
-        );
+        const chunks =
+          [...recording.chunks].sort(
+            (a, b) =>
+              a.index - b.index
+          );
 
-        const buffers = new Array(
-          chunks.length
-        );
+        const buffers =
+          new Array(chunks.length);
 
         let completed = 0;
 
         await Promise.all(
           chunks.map(
             async (chunk, index) => {
-              const response = await fetch(
-                chunk.url
-              );
+              const response =
+                await fetch(chunk.url);
 
               if (!response.ok) {
                 throw new Error(
@@ -144,7 +172,8 @@ const RecordingViewer = () => {
                 return;
               }
 
-              buffers[index] = buffer;
+              buffers[index] =
+                buffer;
 
               completed += 1;
 
@@ -206,14 +235,18 @@ const RecordingViewer = () => {
 
   const isVideo =
     recording?.recordingMode === 'video' ||
-    recording?.mimeType?.startsWith('video/');
+    recording?.mimeType?.startsWith(
+      'video/'
+    );
 
   const isAudio = !isVideo;
 
   const displayType =
-    requestedType === 'video' && isVideo
+    requestedType === 'video' &&
+    isVideo
       ? 'Video Recording'
-      : requestedType === 'audio' && isAudio
+      : requestedType === 'audio' &&
+        isAudio
       ? 'Audio Recording'
       : isVideo
       ? 'Video Recording'
@@ -260,18 +293,24 @@ const RecordingViewer = () => {
             marginBottom: '2rem'
           }}
         >
-          <Link
-            to="/dashboard/history"
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
             style={{
               color: 'var(--text-muted)',
               textDecoration: 'none',
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '0.5rem'
+              gap: '0.5rem',
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              fontSize: '1rem',
+              cursor: 'pointer'
             }}
           >
-            ← Back to History
-          </Link>
+            ← Back
+          </button>
         </div>
 
         <div
@@ -294,7 +333,9 @@ const RecordingViewer = () => {
                 marginBottom: '0.5rem'
               }}
             >
-              INTERVIEW RECORDING
+              {isAdminViewer
+                ? 'ADMIN · INTERVIEW RECORDING'
+                : 'INTERVIEW RECORDING'}
             </div>
 
             <h1
@@ -312,7 +353,8 @@ const RecordingViewer = () => {
                 color: 'var(--text-muted)'
               }}
             >
-              {recording?.totalChunks || 0}{' '}
+              {recording?.totalChunks ||
+                0}{' '}
               recording chunk
               {recording?.totalChunks === 1
                 ? ''
@@ -336,64 +378,68 @@ const RecordingViewer = () => {
             </div>
           )}
 
-          {!error && building && (
-            <div
-              style={{
-                minHeight: '350px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexDirection: 'column',
-                gap: '1rem'
-              }}
-            >
-              <div
-                className="spinner"
-                style={{
-                  width: '45px',
-                  height: '45px'
-                }}
-              />
-
+          {!error &&
+            building && (
               <div
                 style={{
-                  color: 'var(--text-muted)'
-                }}
-              >
-                Preparing your recording...
-              </div>
-
-              <div
-                style={{
-                  width: '280px',
-                  height: '6px',
-                  borderRadius: '999px',
-                  background:
-                    'rgba(255,255,255,0.08)',
-                  overflow: 'hidden'
+                  minHeight: '350px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexDirection: 'column',
+                  gap: '1rem'
                 }}
               >
                 <div
+                  className="spinner"
                   style={{
-                    width: `${progress}%`,
-                    height: '100%',
-                    background: '#a855f7',
-                    transition:
-                      'width 0.2s ease'
+                    width: '45px',
+                    height: '45px'
                   }}
                 />
-              </div>
 
-              <div
-                style={{
-                  color: 'var(--text-muted)',
-                  fontSize: '0.85rem'
-                }}
-              >
-                Downloading {progress}%
+                <div
+                  style={{
+                    color:
+                      'var(--text-muted)'
+                  }}
+                >
+                  Preparing your recording...
+                </div>
+
+                <div
+                  style={{
+                    width: '280px',
+                    height: '6px',
+                    borderRadius: '999px',
+                    background:
+                      'rgba(255,255,255,0.08)',
+                    overflow: 'hidden'
+                  }}
+                >
+                  <div
+                    style={{
+                      width:
+                        `${progress}%`,
+                      height: '100%',
+                      background: '#a855f7',
+                      transition:
+                        'width 0.2s ease'
+                    }}
+                  />
+                </div>
+
+                <div
+                  style={{
+                    color:
+                      'var(--text-muted)',
+                    fontSize: '0.85rem'
+                  }}
+                >
+                  Downloading {progress}%
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
           {!error &&
             !building &&
@@ -485,12 +531,14 @@ const RecordingViewer = () => {
                         stroke="currentColor"
                         strokeWidth="1.7"
                       />
+
                       <path
                         d="M4 11C4 15.42 7.58 19 12 19C16.42 19 20 15.42 20 11"
                         stroke="currentColor"
                         strokeWidth="1.7"
                         strokeLinecap="round"
                       />
+
                       <path
                         d="M12 19V22"
                         stroke="currentColor"

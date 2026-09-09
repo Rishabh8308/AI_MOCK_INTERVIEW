@@ -23,6 +23,7 @@ const StartJourney = () => {
 
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -34,6 +35,9 @@ const StartJourney = () => {
 
       if (mounted) {
         setUser(session?.user || null);
+        setIsAdmin(
+          session?.user?.app_metadata?.role === 'admin'
+        );
         setLoading(false);
       }
     };
@@ -46,6 +50,9 @@ const StartJourney = () => {
       (_event, session) => {
         if (mounted) {
           setUser(session?.user || null);
+          setIsAdmin(
+            session?.user?.app_metadata?.role === 'admin'
+          );
           setLoading(false);
         }
       }
@@ -147,8 +154,21 @@ const StartJourney = () => {
         </button>
 
         <nav className="start-journey-nav">
+          
           {user ? (
             <>
+
+              {isAdmin && (
+            <button
+              type="button"
+              className="start-journey-nav-button"
+              onClick={() =>
+                navigate('/admin')
+              }
+            >
+              Admin
+            </button>
+          )}            
               <button
                 type="button"
                 className="start-journey-nav-button"
@@ -160,12 +180,15 @@ const StartJourney = () => {
               </button>
 
               <button
-  type="button"
-  className="start-journey-nav-button"
-  onClick={() => navigate('/dashboard/history')}
->
-  History
-</button>
+                type="button"
+                className="start-journey-nav-button"
+                onClick={() =>
+                  navigate('/dashboard/history')
+                }
+              >
+                History
+              </button>
+
 
               <button
                 type="button"
