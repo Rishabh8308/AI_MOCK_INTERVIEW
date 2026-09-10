@@ -9,13 +9,16 @@ const AdminDashboard = () => {
   const usersSectionRef = useRef(null);
   const userDetailsRef = useRef(null);
   const rankingsSectionRef = useRef(null);
+  const analyticsSectionRef = useRef(null);
 
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [userInterviews, setUserInterviews] = useState([]);
+  const [analytics, setAnalytics] = useState(null);
 
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [loadingInterviews, setLoadingInterviews] = useState(false);
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
 
   const [showUsers, setShowUsers] = useState(
     searchParams.get('users') === 'open'
@@ -25,9 +28,11 @@ const AdminDashboard = () => {
     searchParams.get('rankings') === 'open'
   );
 
-  const [rankingField, setRankingField] =
-    useState('overall');
+  const [showAnalytics, setShowAnalytics] = useState(
+    searchParams.get('analytics') === 'open'
+  );
 
+  const [rankingField, setRankingField] = useState('overall');
   const [search, setSearch] = useState('');
   const [error, setError] = useState('');
 
@@ -57,18 +62,27 @@ const AdminDashboard = () => {
 
       return {
         overall: Number(scores.overall) || 0,
-        communication:
-          Number(scores.communication) || 0,
-        technical:
-          Number(scores.technical) || 0,
-        confidence:
-          Number(scores.confidence) || 0,
-        starMethod:
-          Number(scores.starMethod) || 0
+        communication: Number(scores.communication) || 0,
+        technical: Number(scores.technical) || 0,
+        confidence: Number(scores.confidence) || 0,
+        starMethod: Number(scores.starMethod) || 0
       };
     } catch {
       return defaultScores;
     }
+  };
+
+  const getSession = async () => {
+    const {
+      data: { session }
+    } = await supabase.auth.getSession();
+
+    if (!session) {
+      navigate('/auth');
+      return null;
+    }
+
+    return session;
   };
 
   const loadUsers = async () => {
@@ -76,24 +90,19 @@ const AdminDashboard = () => {
       setLoadingUsers(true);
       setError('');
 
-      const {
-        data: { session }
-      } = await supabase.auth.getSession();
+      const session = await getSession();
 
       if (!session) {
-        navigate('/auth');
         return;
       }
 
-      const apiUrl =
-        import.meta.env.VITE_API_URL || '';
+      const apiUrl = import.meta.env.VITE_API_URL || '';
 
       const response = await fetch(
         `${apiUrl}/api/admin/users`,
         {
           headers: {
-            Authorization:
-              `Bearer ${session.access_token}`
+            Authorization: `Bearer ${session.access_token}`
           }
         }
       );
@@ -102,8 +111,7 @@ const AdminDashboard = () => {
 
       if (!response.ok) {
         throw new Error(
-          data.error ||
-            'Failed to load users'
+          data.error || 'Failed to load users'
         );
       }
 
@@ -115,11 +123,54 @@ const AdminDashboard = () => {
       );
 
       setError(
-        err.message ||
-          'Failed to load users.'
+        err.message || 'Failed to load users.'
       );
     } finally {
       setLoadingUsers(false);
+    }
+  };
+
+  const loadAnalytics = async () => {
+    try {
+      setLoadingAnalytics(true);
+
+      const session = await getSession();
+
+      if (!session) {
+        return;
+      }
+
+      const apiUrl = import.meta.env.VITE_API_URL || '';
+
+      const response = await fetch(
+        `${apiUrl}/api/admin/analytics`,
+        {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`
+          }
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error || 'Failed to load analytics'
+        );
+      }
+
+      setAnalytics(data);
+    } catch (err) {
+      console.error(
+        'Failed to load admin analytics:',
+        err
+      );
+
+      setError(
+        err.message || 'Failed to load analytics.'
+      );
+    } finally {
+      setLoadingAnalytics(false);
     }
   };
 
@@ -130,24 +181,19 @@ const AdminDashboard = () => {
       setUserInterviews([]);
       setError('');
 
-      const {
-        data: { session }
-      } = await supabase.auth.getSession();
+      const session = await getSession();
 
       if (!session) {
-        navigate('/auth');
         return;
       }
 
-      const apiUrl =
-        import.meta.env.VITE_API_URL || '';
+      const apiUrl = import.meta.env.VITE_API_URL || '';
 
       const response = await fetch(
         `${apiUrl}/api/admin/users/${user.id}/interviews`,
         {
           headers: {
-            Authorization:
-              `Bearer ${session.access_token}`
+            Authorization: `Bearer ${session.access_token}`
           }
         }
       );
@@ -156,14 +202,11 @@ const AdminDashboard = () => {
 
       if (!response.ok) {
         throw new Error(
-          data.error ||
-            'Failed to load interviews'
+          data.error || 'Failed to load interviews'
         );
       }
 
-      setUserInterviews(
-        data.interviews || []
-      );
+      setUserInterviews(data.interviews || []);
     } catch (err) {
       console.error(
         'Failed to load user interviews:',
@@ -171,8 +214,7 @@ const AdminDashboard = () => {
       );
 
       setError(
-        err.message ||
-          'Failed to load interviews.'
+        err.message || 'Failed to load interviews.'
       );
     } finally {
       setLoadingInterviews(false);
@@ -181,11 +223,11 @@ const AdminDashboard = () => {
 
   useEffect(() => {
     loadUsers();
+    loadAnalytics();
   }, []);
 
   useEffect(() => {
-    const userId =
-      searchParams.get('user');
+    const userId = searchParams.get('user');
 
     if (
       userId &&
@@ -249,12 +291,26 @@ const AdminDashboard = () => {
     }
   }, [showRankings]);
 
+  useEffect(() => {
+    if (
+      showAnalytics &&
+      analyticsSectionRef.current
+    ) {
+      setTimeout(() => {
+        analyticsSectionRef.current?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start'
+        });
+      }, 100);
+    }
+  }, [showAnalytics]);
+
   const openUsers = () => {
     setShowUsers(true);
     setShowRankings(false);
+    setShowAnalytics(false);
 
     const params = new URLSearchParams();
-
     params.set('users', 'open');
 
     setSearchParams(params);
@@ -271,11 +327,11 @@ const AdminDashboard = () => {
   const openRankings = () => {
     setShowRankings(true);
     setShowUsers(false);
+    setShowAnalytics(false);
     setSelectedUser(null);
     setUserInterviews([]);
 
     const params = new URLSearchParams();
-
     params.set('rankings', 'open');
 
     setSearchParams(params);
@@ -287,9 +343,29 @@ const AdminDashboard = () => {
     setSearchParams({});
   };
 
+  const openAnalytics = () => {
+    setShowAnalytics(true);
+    setShowUsers(false);
+    setShowRankings(false);
+    setSelectedUser(null);
+    setUserInterviews([]);
+
+    const params = new URLSearchParams();
+    params.set('analytics', 'open');
+
+    setSearchParams(params);
+  };
+
+  const closeAnalytics = () => {
+    setShowAnalytics(false);
+
+    setSearchParams({});
+  };
+
   const openUser = async (user) => {
     setShowUsers(true);
     setShowRankings(false);
+    setShowAnalytics(false);
 
     const params = new URLSearchParams();
 
@@ -315,8 +391,7 @@ const AdminDashboard = () => {
   };
 
   const filteredUsers = useMemo(() => {
-    const value =
-      search.trim().toLowerCase();
+    const value = search.trim().toLowerCase();
 
     if (!value) {
       return users;
@@ -324,9 +399,7 @@ const AdminDashboard = () => {
 
     return users.filter(
       (user) =>
-        user.email
-          ?.toLowerCase()
-          .includes(value)
+        user.email?.toLowerCase().includes(value)
     );
   }, [users, search]);
 
@@ -343,21 +416,18 @@ const AdminDashboard = () => {
       );
   }, [users, rankingField]);
 
-  const totalInterviews =
-    users.reduce(
-      (total, user) =>
-        total +
-        (user.interview_count || 0),
-      0
-    );
+  const totalInterviews = users.reduce(
+    (total, user) =>
+      total + (user.interview_count || 0),
+    0
+  );
 
   const averageScore = useMemo(() => {
-    const scoredUsers =
-      users.filter(
-        (user) =>
-          user.interview_count > 0 &&
-          user.averages?.overall > 0
-      );
+    const scoredUsers = users.filter(
+      (user) =>
+        user.interview_count > 0 &&
+        user.averages?.overall > 0
+    );
 
     if (!scoredUsers.length) {
       return null;
@@ -366,14 +436,11 @@ const AdminDashboard = () => {
     return Math.round(
       scoredUsers.reduce(
         (sum, user) =>
-          sum +
-          user.averages.overall,
+          sum + user.averages.overall,
         0
       ) / scoredUsers.length
     );
   }, [users]);
-
-  const interviewsToday = 0;
 
   const fieldLabels = {
     overall: 'Overall',
@@ -382,6 +449,28 @@ const AdminDashboard = () => {
     confidence: 'Confidence',
     starMethod: 'STAR Method'
   };
+
+  const scoreDistribution = analytics?.scoreDistribution || {
+    excellent: 0,
+    good: 0,
+    average: 0,
+    needsImprovement: 0
+  };
+
+  const maxRoleCount = Math.max(
+    ...(analytics?.popularRoles || []).map(
+      (item) => item.count
+    ),
+    1
+  );
+
+  const maxDistribution = Math.max(
+    scoreDistribution.excellent,
+    scoreDistribution.good,
+    scoreDistribution.average,
+    scoreDistribution.needsImprovement,
+    1
+  );
 
   return (
     <div
@@ -440,10 +529,8 @@ const AdminDashboard = () => {
               marginBottom: '1.5rem',
               padding: '1rem',
               borderRadius: '10px',
-              background:
-                'rgba(239,68,68,0.1)',
-              border:
-                '1px solid rgba(239,68,68,0.2)',
+              background: 'rgba(239,68,68,0.1)',
+              border: '1px solid rgba(239,68,68,0.2)',
               color: '#fca5a5'
             }}
           >
@@ -482,9 +569,7 @@ const AdminDashboard = () => {
                 fontWeight: 700
               }}
             >
-              {loadingUsers
-                ? '...'
-                : users.length}
+              {loadingUsers ? '...' : users.length}
             </div>
           </div>
 
@@ -510,9 +595,9 @@ const AdminDashboard = () => {
                 fontWeight: 700
               }}
             >
-              {loadingUsers
+              {loadingAnalytics
                 ? '...'
-                : totalInterviews}
+                : analytics?.totalInterviews ?? totalInterviews}
             </div>
           </div>
 
@@ -538,9 +623,13 @@ const AdminDashboard = () => {
                 fontWeight: 700
               }}
             >
-              {averageScore === null
-                ? '—'
-                : `${averageScore}/100`}
+              {loadingAnalytics
+                ? '...'
+                : analytics?.averages?.overall
+                  ? `${analytics.averages.overall}/100`
+                  : averageScore === null
+                    ? '—'
+                    : `${averageScore}/100`}
             </div>
           </div>
 
@@ -566,7 +655,9 @@ const AdminDashboard = () => {
                 fontWeight: 700
               }}
             >
-              {interviewsToday}
+              {loadingAnalytics
+                ? '...'
+                : analytics?.interviewsToday ?? 0}
             </div>
           </div>
         </div>
@@ -613,21 +704,16 @@ const AdminDashboard = () => {
                   : openUsers
               }
               style={{
-                padding:
-                  '0.75rem 1.2rem',
-                borderRadius:
-                  '10px',
+                padding: '0.75rem 1.2rem',
+                borderRadius: '10px',
                 border: 'none',
-                background:
-                  'rgba(168,85,247,0.35)',
+                background: 'rgba(168,85,247,0.35)',
                 color: '#fff',
                 fontWeight: 600,
                 cursor: 'pointer'
               }}
             >
-              {showUsers
-                ? 'Hide Users'
-                : 'View Users'}
+              {showUsers ? 'Hide Users' : 'View Users'}
             </button>
           </div>
 
@@ -665,13 +751,10 @@ const AdminDashboard = () => {
                   : openRankings
               }
               style={{
-                padding:
-                  '0.75rem 1.2rem',
-                borderRadius:
-                  '10px',
+                padding: '0.75rem 1.2rem',
+                borderRadius: '10px',
                 border: 'none',
-                background:
-                  'rgba(168,85,247,0.35)',
+                background: 'rgba(168,85,247,0.35)',
                 color: '#fff',
                 fontWeight: 600,
                 cursor: 'pointer'
@@ -682,7 +765,378 @@ const AdminDashboard = () => {
                 : 'View Rankings'}
             </button>
           </div>
+
+          <div
+            className="glass-panel"
+            style={{
+              padding: '1.7rem'
+            }}
+          >
+            <h2
+              style={{
+                marginTop: 0,
+                marginBottom: '0.7rem'
+              }}
+            >
+              Interview Analytics
+            </h2>
+
+            <p
+              style={{
+                color: 'var(--text-muted)',
+                lineHeight: 1.6,
+                marginBottom: '1.3rem'
+              }}
+            >
+              View platform-wide performance, popular
+              roles and score distribution.
+            </p>
+
+            <button
+              type="button"
+              onClick={
+                showAnalytics
+                  ? closeAnalytics
+                  : openAnalytics
+              }
+              style={{
+                padding: '0.75rem 1.2rem',
+                borderRadius: '10px',
+                border: 'none',
+                background: 'rgba(168,85,247,0.35)',
+                color: '#fff',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+            >
+              {showAnalytics
+                ? 'Hide Analytics'
+                : 'View Analytics'}
+            </button>
+          </div>
         </div>
+
+        {showAnalytics && (
+          <div
+            ref={analyticsSectionRef}
+            className="glass-panel"
+            style={{
+              marginTop: '1.2rem',
+              padding: '1.7rem',
+              scrollMarginTop: '100px'
+            }}
+          >
+            <div
+              style={{
+                marginBottom: '1.7rem'
+              }}
+            >
+              <div
+                style={{
+                  color: 'var(--text-muted)',
+                  fontSize: '0.8rem',
+                  letterSpacing: '0.08em',
+                  marginBottom: '0.4rem'
+                }}
+              >
+                PLATFORM OVERVIEW
+              </div>
+
+              <h2
+                style={{
+                  margin: 0
+                }}
+              >
+                Interview Analytics
+              </h2>
+
+              <p
+                style={{
+                  margin: '0.5rem 0 0',
+                  color: 'var(--text-muted)'
+                }}
+              >
+                Aggregated performance data across all
+                completed interviews.
+              </p>
+            </div>
+
+            {loadingAnalytics ? (
+              <div
+                style={{
+                  padding: '3rem',
+                  textAlign: 'center',
+                  color: 'var(--text-muted)'
+                }}
+              >
+                Loading analytics...
+              </div>
+            ) : !analytics ? (
+              <div
+                style={{
+                  padding: '3rem',
+                  textAlign: 'center',
+                  color: 'var(--text-muted)'
+                }}
+              >
+                Analytics data is not available yet.
+              </div>
+            ) : (
+              <>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns:
+                      'repeat(auto-fit, minmax(170px, 1fr))',
+                    gap: '0.9rem',
+                    marginBottom: '1.5rem'
+                  }}
+                >
+                  {[
+                    [
+                      'This Week',
+                      analytics.interviewsThisWeek
+                    ],
+                    [
+                      'Scored Interviews',
+                      analytics.scoredInterviews
+                    ],
+                    [
+                      'Overall',
+                      `${analytics.averages.overall}/100`
+                    ],
+                    [
+                      'Technical',
+                      `${analytics.averages.technical}/100`
+                    ],
+                    [
+                      'Communication',
+                      `${analytics.averages.communication}/100`
+                    ],
+                    [
+                      'Confidence',
+                      `${analytics.averages.confidence}/100`
+                    ],
+                    [
+                      'STAR Method',
+                      `${analytics.averages.starMethod}/100`
+                    ]
+                  ].map(([label, value]) => (
+                    <div
+                      key={label}
+                      style={{
+                        padding: '1rem',
+                        borderRadius: '10px',
+                        background:
+                          'rgba(255,255,255,0.04)',
+                        border:
+                          '1px solid rgba(255,255,255,0.07)'
+                      }}
+                    >
+                      <div
+                        style={{
+                          color: 'var(--text-muted)',
+                          fontSize: '0.78rem',
+                          marginBottom: '0.45rem'
+                        }}
+                      >
+                        {label}
+                      </div>
+
+                      <div
+                        style={{
+                          fontSize: '1.35rem',
+                          fontWeight: 700
+                        }}
+                      >
+                        {value}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns:
+                      'repeat(auto-fit, minmax(320px, 1fr))',
+                    gap: '1.2rem'
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: '1.3rem',
+                      borderRadius: '12px',
+                      background:
+                        'rgba(255,255,255,0.03)',
+                      border:
+                        '1px solid rgba(255,255,255,0.07)'
+                    }}
+                  >
+                    <h3
+                      style={{
+                        marginTop: 0,
+                        marginBottom: '1.2rem'
+                      }}
+                    >
+                      Score Distribution
+                    </h3>
+
+                    {[
+                      [
+                        'Excellent',
+                        scoreDistribution.excellent
+                      ],
+                      [
+                        'Good',
+                        scoreDistribution.good
+                      ],
+                      [
+                        'Average',
+                        scoreDistribution.average
+                      ],
+                      [
+                        'Needs Improvement',
+                        scoreDistribution.needsImprovement
+                      ]
+                    ].map(([label, count]) => (
+                      <div
+                        key={label}
+                        style={{
+                          marginBottom: '1rem'
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            marginBottom: '0.4rem',
+                            fontSize: '0.85rem'
+                          }}
+                        >
+                          <span>{label}</span>
+                          <span
+                            style={{
+                              color: 'var(--text-muted)'
+                            }}
+                          >
+                            {count}
+                          </span>
+                        </div>
+
+                        <div
+                          style={{
+                            height: '8px',
+                            borderRadius: '999px',
+                            background:
+                              'rgba(255,255,255,0.07)',
+                            overflow: 'hidden'
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: `${(count / maxDistribution) * 100}%`,
+                              height: '100%',
+                              borderRadius: '999px',
+                              background:
+                                'rgba(168,85,247,0.65)'
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div
+                    style={{
+                      padding: '1.3rem',
+                      borderRadius: '12px',
+                      background:
+                        'rgba(255,255,255,0.03)',
+                      border:
+                        '1px solid rgba(255,255,255,0.07)'
+                    }}
+                  >
+                    <h3
+                      style={{
+                        marginTop: 0,
+                        marginBottom: '1.2rem'
+                      }}
+                    >
+                      Popular Interview Roles
+                    </h3>
+
+                    {analytics.popularRoles?.length === 0 ? (
+                      <div
+                        style={{
+                          color: 'var(--text-muted)',
+                          padding: '1rem 0'
+                        }}
+                      >
+                        No role data available yet.
+                      </div>
+                    ) : (
+                      analytics.popularRoles.map(
+                        (item, index) => (
+                          <div
+                            key={`${item.role}-${index}`}
+                            style={{
+                              marginBottom: '1rem'
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                justifyContent:
+                                  'space-between',
+                                marginBottom: '0.4rem',
+                                fontSize: '0.85rem'
+                              }}
+                            >
+                              <span>
+                                {item.role}
+                              </span>
+
+                              <span
+                                style={{
+                                  color:
+                                    'var(--text-muted)'
+                                }}
+                              >
+                                {item.count}
+                              </span>
+                            </div>
+
+                            <div
+                              style={{
+                                height: '8px',
+                                borderRadius: '999px',
+                                background:
+                                  'rgba(255,255,255,0.07)',
+                                overflow: 'hidden'
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: `${(item.count / maxRoleCount) * 100}%`,
+                                  height: '100%',
+                                  borderRadius:
+                                    '999px',
+                                  background:
+                                    'rgba(168,85,247,0.65)'
+                                }}
+                              />
+                            </div>
+                          </div>
+                        )
+                      )
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         {showUsers && (
           <div
@@ -698,8 +1152,7 @@ const AdminDashboard = () => {
             <div
               style={{
                 display: 'flex',
-                justifyContent:
-                  'space-between',
+                justifyContent: 'space-between',
                 alignItems: 'center',
                 gap: '1rem',
                 marginBottom: '1.5rem',
@@ -717,10 +1170,8 @@ const AdminDashboard = () => {
 
                 <p
                   style={{
-                    margin:
-                      '0.4rem 0 0',
-                    color:
-                      'var(--text-muted)'
+                    margin: '0.4rem 0 0',
+                    color: 'var(--text-muted)'
                   }}
                 >
                   Select a user to view their interviews.
@@ -730,18 +1181,14 @@ const AdminDashboard = () => {
               <input
                 value={search}
                 onChange={(event) =>
-                  setSearch(
-                    event.target.value
-                  )
+                  setSearch(event.target.value)
                 }
                 placeholder="Search by email"
                 style={{
                   width: '240px',
                   maxWidth: '100%',
-                  padding:
-                    '0.7rem 0.9rem',
-                  borderRadius:
-                    '10px',
+                  padding: '0.7rem 0.9rem',
+                  borderRadius: '10px',
                   border:
                     '1px solid rgba(255,255,255,0.12)',
                   background:
@@ -756,10 +1203,8 @@ const AdminDashboard = () => {
               <div
                 style={{
                   padding: '3rem',
-                  textAlign:
-                    'center',
-                  color:
-                    'var(--text-muted)'
+                  textAlign: 'center',
+                  color: 'var(--text-muted)'
                 }}
               >
                 Loading users...
@@ -768,8 +1213,7 @@ const AdminDashboard = () => {
               <table
                 style={{
                   width: '100%',
-                  borderCollapse:
-                    'collapse',
+                  borderCollapse: 'collapse',
                   minWidth: '850px'
                 }}
               >
@@ -782,138 +1226,117 @@ const AdminDashboard = () => {
                       'Overall',
                       'Joined',
                       ''
-                    ].map(
-                      (heading, index) => (
-                        <th
-                          key={index}
-                          style={{
-                            textAlign:
-                              index === 5
-                                ? 'center'
-                                : 'left',
-                            padding:
-                              '0.9rem',
-                            color:
-                              'var(--text-muted)',
-                            borderBottom:
-                              '1px solid rgba(255,255,255,0.1)'
-                          }}
-                        >
-                          {heading}
-                        </th>
-                      )
-                    )}
+                    ].map((heading, index) => (
+                      <th
+                        key={index}
+                        style={{
+                          textAlign:
+                            index === 5
+                              ? 'center'
+                              : 'left',
+                          padding: '0.9rem',
+                          color:
+                            'var(--text-muted)',
+                          borderBottom:
+                            '1px solid rgba(255,255,255,0.1)'
+                        }}
+                      >
+                        {heading}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
 
                 <tbody>
-                  {filteredUsers.map(
-                    (user) => (
-                      <tr
-                        key={user.id}
+                  {filteredUsers.map((user) => (
+                    <tr key={user.id}>
+                      <td
+                        style={{
+                          padding: '1rem 0.9rem',
+                          borderBottom:
+                            '1px solid rgba(255,255,255,0.06)'
+                        }}
                       >
-                        <td
-                          style={{
-                            padding:
-                              '1rem 0.9rem',
-                            borderBottom:
-                              '1px solid rgba(255,255,255,0.06)'
-                          }}
-                        >
-                          {user.email ||
-                            '—'}
-                        </td>
+                        {user.email || '—'}
+                      </td>
 
-                        <td
-                          style={{
-                            padding:
-                              '1rem 0.9rem',
-                            borderBottom:
-                              '1px solid rgba(255,255,255,0.06)'
-                          }}
-                        >
-                          {user.role}
-                        </td>
+                      <td
+                        style={{
+                          padding: '1rem 0.9rem',
+                          borderBottom:
+                            '1px solid rgba(255,255,255,0.06)'
+                        }}
+                      >
+                        {user.role}
+                      </td>
 
-                        <td
-                          style={{
-                            padding:
-                              '1rem 0.9rem',
-                            borderBottom:
-                              '1px solid rgba(255,255,255,0.06)'
-                          }}
-                        >
-                          {user.interview_count}
-                        </td>
+                      <td
+                        style={{
+                          padding: '1rem 0.9rem',
+                          borderBottom:
+                            '1px solid rgba(255,255,255,0.06)'
+                        }}
+                      >
+                        {user.interview_count}
+                      </td>
 
-                        <td
-                          style={{
-                            padding:
-                              '1rem 0.9rem',
-                            borderBottom:
-                              '1px solid rgba(255,255,255,0.06)'
-                          }}
-                        >
-                          {user.interview_count
-                            ? `${user.averages.overall}/100`
-                            : '—'}
-                        </td>
+                      <td
+                        style={{
+                          padding: '1rem 0.9rem',
+                          borderBottom:
+                            '1px solid rgba(255,255,255,0.06)'
+                        }}
+                      >
+                        {user.interview_count
+                          ? `${user.averages.overall}/100`
+                          : '—'}
+                      </td>
 
-                        <td
-                          style={{
-                            padding:
-                              '1rem 0.9rem',
-                            borderBottom:
-                              '1px solid rgba(255,255,255,0.06)',
-                            color:
-                              'var(--text-muted)'
-                          }}
-                        >
-                          {user.created_at
-                            ? new Date(
-                                user.created_at
-                              ).toLocaleDateString()
-                            : '—'}
-                        </td>
+                      <td
+                        style={{
+                          padding: '1rem 0.9rem',
+                          borderBottom:
+                            '1px solid rgba(255,255,255,0.06)',
+                          color:
+                            'var(--text-muted)'
+                        }}
+                      >
+                        {user.created_at
+                          ? new Date(
+                              user.created_at
+                            ).toLocaleDateString()
+                          : '—'}
+                      </td>
 
-                        <td
+                      <td
+                        style={{
+                          padding: '1rem 0.9rem',
+                          borderBottom:
+                            '1px solid rgba(255,255,255,0.06)'
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openUser(user)
+                          }
                           style={{
                             padding:
-                              '1rem 0.9rem',
-                            borderBottom:
-                              '1px solid rgba(255,255,255,0.06)'
+                              '0.55rem 0.8rem',
+                            borderRadius: '8px',
+                            border: 'none',
+                            background:
+                              'rgba(168,85,247,0.35)',
+                            color: '#fff',
+                            fontWeight: 600,
+                            cursor: 'pointer'
                           }}
                         >
-                          <button
-                            type="button"
-                            onClick={() =>
-                              openUser(
-                                user
-                              )
-                            }
-                            style={{
-                              padding:
-                                '0.55rem 0.8rem',
-                              borderRadius:
-                                '8px',
-                              border:
-                                'none',
-                              background:
-                                'rgba(168,85,247,0.35)',
-                              color:
-                                '#fff',
-                              fontWeight:
-                                600,
-                              cursor:
-                                'pointer'
-                            }}
-                          >
-                            View
-                          </button>
-                        </td>
-                      </tr>
-                    )
-                  )}
+                          View
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             )}
@@ -925,39 +1348,29 @@ const AdminDashboard = () => {
             ref={userDetailsRef}
             className="glass-panel"
             style={{
-              marginTop:
-                '1.2rem',
-              padding:
-                '1.7rem',
-              scrollMarginTop:
-                '100px'
+              marginTop: '1.2rem',
+              padding: '1.7rem',
+              scrollMarginTop: '100px'
             }}
           >
             <div
               style={{
-                display:
-                  'flex',
+                display: 'flex',
                 justifyContent:
                   'space-between',
                 alignItems:
                   'flex-start',
-                gap:
-                  '1rem',
-                marginBottom:
-                  '1.5rem',
-                flexWrap:
-                  'wrap'
+                gap: '1rem',
+                marginBottom: '1.5rem',
+                flexWrap: 'wrap'
               }}
             >
               <div>
                 <div
                   style={{
-                    color:
-                      'var(--text-muted)',
-                    fontSize:
-                      '0.85rem',
-                    marginBottom:
-                      '0.4rem'
+                    color: 'var(--text-muted)',
+                    fontSize: '0.85rem',
+                    marginBottom: '0.4rem'
                   }}
                 >
                   USER DETAILS
@@ -973,16 +1386,13 @@ const AdminDashboard = () => {
 
                 <p
                   style={{
-                    margin:
-                      '0.5rem 0 0',
-                    color:
-                      'var(--text-muted)'
+                    margin: '0.5rem 0 0',
+                    color: 'var(--text-muted)'
                   }}
                 >
                   {selectedUser.interview_count}{' '}
                   interview
-                  {selectedUser.interview_count !==
-                  1
+                  {selectedUser.interview_count !== 1
                     ? 's'
                     : ''}{' '}
                   · Overall average{' '}
@@ -994,17 +1404,14 @@ const AdminDashboard = () => {
                 type="button"
                 onClick={closeUser}
                 style={{
-                  padding:
-                    '0.6rem 0.9rem',
-                  borderRadius:
-                    '8px',
+                  padding: '0.6rem 0.9rem',
+                  borderRadius: '8px',
                   border:
                     '1px solid rgba(255,255,255,0.12)',
                   background:
                     'rgba(255,255,255,0.05)',
                   color: '#fff',
-                  cursor:
-                    'pointer'
+                  cursor: 'pointer'
                 }}
               >
                 Close
@@ -1014,12 +1421,9 @@ const AdminDashboard = () => {
             {loadingInterviews ? (
               <div
                 style={{
-                  padding:
-                    '3rem',
-                  textAlign:
-                    'center',
-                  color:
-                    'var(--text-muted)'
+                  padding: '3rem',
+                  textAlign: 'center',
+                  color: 'var(--text-muted)'
                 }}
               >
                 Loading interviews...
@@ -1027,12 +1431,9 @@ const AdminDashboard = () => {
             ) : userInterviews.length === 0 ? (
               <div
                 style={{
-                  padding:
-                    '2rem',
-                  textAlign:
-                    'center',
-                  color:
-                    'var(--text-muted)'
+                  padding: '2rem',
+                  textAlign: 'center',
+                  color: 'var(--text-muted)'
                 }}
               >
                 This user has not completed any interviews.
@@ -1040,212 +1441,177 @@ const AdminDashboard = () => {
             ) : (
               <div
                 style={{
-                  display:
-                    'grid',
-                  gap:
-                    '1rem'
+                  display: 'grid',
+                  gap: '1rem'
                 }}
               >
-                {userInterviews.map(
-                  (interview) => {
-                    const scores =
-                      interview.scores ||
-                      parseScores(
-                        interview.final_report
-                      );
+                {userInterviews.map((interview) => {
+                  const scores =
+                    interview.scores ||
+                    parseScores(
+                      interview.final_report
+                    );
 
-                    return (
+                  return (
+                    <div
+                      key={interview.id}
+                      style={{
+                        padding: '1.2rem',
+                        borderRadius: '12px',
+                        background:
+                          'rgba(255,255,255,0.04)',
+                        border:
+                          '1px solid rgba(255,255,255,0.08)'
+                      }}
+                    >
                       <div
-                        key={
-                          interview.id
-                        }
                         style={{
-                          padding:
-                            '1.2rem',
-                          borderRadius:
-                            '12px',
-                          background:
-                            'rgba(255,255,255,0.04)',
-                          border:
-                            '1px solid rgba(255,255,255,0.08)'
+                          display: 'flex',
+                          justifyContent:
+                            'space-between',
+                          gap: '1rem',
+                          alignItems:
+                            'flex-start',
+                          flexWrap: 'wrap'
                         }}
                       >
+                        <div>
+                          <h3
+                            style={{
+                              margin:
+                                '0 0 0.4rem'
+                            }}
+                          >
+                            {interview.role ||
+                              'General Interview'}
+                          </h3>
+
+                          <div
+                            style={{
+                              color:
+                                'var(--text-muted)',
+                              fontSize: '0.9rem'
+                            }}
+                          >
+                            {interview.created_at
+                              ? new Date(
+                                  interview.created_at
+                                ).toLocaleString()
+                              : 'Date unavailable'}
+                          </div>
+                        </div>
+
                         <div
                           style={{
-                            display:
-                              'flex',
-                            justifyContent:
-                              'space-between',
-                            gap:
-                              '1rem',
-                            alignItems:
-                              'flex-start',
-                            flexWrap:
-                              'wrap'
+                            fontWeight: 700,
+                            fontSize: '1.2rem'
                           }}
                         >
-                          <div>
-                            <h3
-                              style={{
-                                margin:
-                                  '0 0 0.4rem'
-                              }}
-                            >
-                              {interview.role ||
-                                'General Interview'}
-                            </h3>
+                          {scores.overall}/100
+                        </div>
+                      </div>
 
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns:
+                            'repeat(auto-fit, minmax(120px, 1fr))',
+                          gap: '0.7rem',
+                          marginTop: '1rem'
+                        }}
+                      >
+                        {[
+                          [
+                            'Technical',
+                            scores.technical
+                          ],
+                          [
+                            'Communication',
+                            scores.communication
+                          ],
+                          [
+                            'Confidence',
+                            scores.confidence
+                          ],
+                          [
+                            'STAR',
+                            scores.starMethod
+                          ]
+                        ].map(([label, score]) => (
+                          <div
+                            key={label}
+                            style={{
+                              padding: '0.7rem',
+                              borderRadius: '8px',
+                              background:
+                                'rgba(255,255,255,0.04)'
+                            }}
+                          >
                             <div
                               style={{
                                 color:
                                   'var(--text-muted)',
-                                fontSize:
-                                  '0.9rem'
+                                fontSize: '0.75rem',
+                                marginBottom:
+                                  '0.2rem'
                               }}
                             >
-                              {interview.created_at
-                                ? new Date(
-                                    interview.created_at
-                                  ).toLocaleString()
-                                : 'Date unavailable'}
+                              {label}
                             </div>
-                          </div>
 
-                          <div
-                            style={{
-                              fontWeight:
-                                700,
-                              fontSize:
-                                '1.2rem'
-                            }}
-                          >
-                            {scores.overall}/100
+                            <strong>
+                              {score}/100
+                            </strong>
                           </div>
-                        </div>
+                        ))}
+                      </div>
 
-                        <div
+                      <div
+                        style={{
+                          display: 'flex',
+                          gap: '0.7rem',
+                          marginTop: '1rem',
+                          flexWrap: 'wrap'
+                        }}
+                      >
+                        <Link
+                          to={`/admin/interview/${interview.id}`}
                           style={{
-                            display:
-                              'grid',
-                            gridTemplateColumns:
-                              'repeat(auto-fit, minmax(120px, 1fr))',
-                            gap:
-                              '0.7rem',
-                            marginTop:
-                              '1rem'
+                            padding:
+                              '0.6rem 0.9rem',
+                            borderRadius: '8px',
+                            background:
+                              'rgba(255,255,255,0.06)',
+                            color: '#fff',
+                            textDecoration: 'none',
+                            fontSize: '0.9rem'
                           }}
                         >
-                          {[
-                            [
-                              'Technical',
-                              scores.technical
-                            ],
-                            [
-                              'Communication',
-                              scores.communication
-                            ],
-                            [
-                              'Confidence',
-                              scores.confidence
-                            ],
-                            [
-                              'STAR',
-                              scores.starMethod
-                            ]
-                          ].map(
-                            ([label, score]) => (
-                              <div
-                                key={
-                                  label
-                                }
-                                style={{
-                                  padding:
-                                    '0.7rem',
-                                  borderRadius:
-                                    '8px',
-                                  background:
-                                    'rgba(255,255,255,0.04)'
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    color:
-                                      'var(--text-muted)',
-                                    fontSize:
-                                      '0.75rem',
-                                    marginBottom:
-                                      '0.2rem'
-                                  }}
-                                >
-                                  {label}
-                                </div>
+                          View Evaluation
+                        </Link>
 
-                                <strong>
-                                  {score}/100
-                                </strong>
-                              </div>
-                            )
-                          )}
-                        </div>
-
-                        <div
-                          style={{
-                            display:
-                              'flex',
-                            gap:
-                              '0.7rem',
-                            marginTop:
-                              '1rem',
-                            flexWrap:
-                              'wrap'
-                          }}
-                        >
+                        {interview.recording_path && (
                           <Link
-                            to={`/admin/interview/${interview.id}`}
+                            to={`/admin/recording/${interview.id}?recording=${interview.recording_mode === 'audio' ? 'audio' : 'video'}`}
                             style={{
                               padding:
                                 '0.6rem 0.9rem',
-                              borderRadius:
-                                '8px',
+                              borderRadius: '8px',
                               background:
-                                'rgba(255,255,255,0.06)',
-                              color:
-                                '#fff',
+                                'rgba(168,85,247,0.35)',
+                              color: '#fff',
                               textDecoration:
                                 'none',
-                              fontSize:
-                                '0.9rem'
+                              fontSize: '0.9rem'
                             }}
                           >
-                            View Evaluation
+                            View Recording
                           </Link>
-
-                          {interview.recording_path && (
-                            <Link
-                              to={`/admin/recording/${interview.id}?recording=${interview.recording_mode === 'audio' ? 'audio' : 'video'}`}
-                              style={{
-                                padding:
-                                  '0.6rem 0.9rem',
-                                borderRadius:
-                                  '8px',
-                                background:
-                                  'rgba(168,85,247,0.35)',
-                                color:
-                                  '#fff',
-                                textDecoration:
-                                  'none',
-                                fontSize:
-                                  '0.9rem'
-                              }}
-                            >
-                              View Recording
-                            </Link>
-                          )}
-                        </div>
+                        )}
                       </div>
-                    );
-                  }
-                )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1253,33 +1619,23 @@ const AdminDashboard = () => {
 
         {showRankings && (
           <div
-            ref={
-              rankingsSectionRef
-            }
+            ref={rankingsSectionRef}
             className="glass-panel"
             style={{
-              marginTop:
-                '1.2rem',
-              padding:
-                '1.7rem',
-              scrollMarginTop:
-                '100px'
+              marginTop: '1.2rem',
+              padding: '1.7rem',
+              scrollMarginTop: '100px'
             }}
           >
             <div
               style={{
-                display:
-                  'flex',
+                display: 'flex',
                 justifyContent:
                   'space-between',
-                alignItems:
-                  'center',
-                gap:
-                  '1rem',
-                flexWrap:
-                  'wrap',
-                marginBottom:
-                  '1.5rem'
+                alignItems: 'center',
+                gap: '1rem',
+                flexWrap: 'wrap',
+                marginBottom: '1.5rem'
               }}
             >
               <div>
@@ -1293,10 +1649,8 @@ const AdminDashboard = () => {
 
                 <p
                   style={{
-                    margin:
-                      '0.4rem 0 0',
-                    color:
-                      'var(--text-muted)'
+                    margin: '0.4rem 0 0',
+                    color: 'var(--text-muted)'
                   }}
                 >
                   Rankings are based on each user's
@@ -1305,40 +1659,28 @@ const AdminDashboard = () => {
               </div>
 
               <select
-                value={
-                  rankingField
-                }
+                value={rankingField}
                 onChange={(event) =>
                   setRankingField(
                     event.target.value
                   )
                 }
                 style={{
-                  padding:
-                    '0.7rem 0.9rem',
-                  borderRadius:
-                    '10px',
+                  padding: '0.7rem 0.9rem',
+                  borderRadius: '10px',
                   border:
                     '1px solid rgba(255,255,255,0.12)',
-                  background:
-                    '#15151c',
-                  color:
-                    '#fff',
-                  outline:
-                    'none',
-                  cursor:
-                    'pointer'
+                  background: '#15151c',
+                  color: '#fff',
+                  outline: 'none',
+                  cursor: 'pointer'
                 }}
               >
-                {Object.entries(
-                  fieldLabels
-                ).map(
+                {Object.entries(fieldLabels).map(
                   ([value, label]) => (
                     <option
                       key={value}
-                      value={
-                        value
-                      }
+                      value={value}
                     >
                       {label}
                     </option>
@@ -1350,12 +1692,9 @@ const AdminDashboard = () => {
             {rankings.length === 0 ? (
               <div
                 style={{
-                  padding:
-                    '3rem',
-                  textAlign:
-                    'center',
-                  color:
-                    'var(--text-muted)'
+                  padding: '3rem',
+                  textAlign: 'center',
+                  color: 'var(--text-muted)'
                 }}
               >
                 There are not enough completed interviews
@@ -1364,125 +1703,93 @@ const AdminDashboard = () => {
             ) : (
               <div
                 style={{
-                  display:
-                    'grid',
-                  gap:
-                    '0.7rem'
+                  display: 'grid',
+                  gap: '0.7rem'
                 }}
               >
-                {rankings.map(
-                  (user, index) => (
+                {rankings.map((user, index) => (
+                  <div
+                    key={user.id}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns:
+                        '55px minmax(180px, 1fr) 120px 120px',
+                      alignItems: 'center',
+                      gap: '1rem',
+                      padding: '1rem',
+                      borderRadius: '10px',
+                      background:
+                        index === 0
+                          ? 'rgba(168,85,247,0.12)'
+                          : 'rgba(255,255,255,0.03)',
+                      border:
+                        '1px solid rgba(255,255,255,0.07)'
+                    }}
+                  >
                     <div
-                      key={
-                        user.id
-                      }
                       style={{
-                        display:
-                          'grid',
-                        gridTemplateColumns:
-                          '55px minmax(180px, 1fr) 120px 120px',
-                        alignItems:
-                          'center',
-                        gap:
-                          '1rem',
-                        padding:
-                          '1rem',
-                        borderRadius:
-                          '10px',
-                        background:
-                          index ===
-                          0
-                            ? 'rgba(168,85,247,0.12)'
-                            : 'rgba(255,255,255,0.03)',
-                        border:
-                          '1px solid rgba(255,255,255,0.07)'
+                        fontSize: '1.1rem',
+                        fontWeight: 700
+                      }}
+                    >
+                      #{index + 1}
+                    </div>
+
+                    <div
+                      style={{
+                        minWidth: 0
                       }}
                     >
                       <div
                         style={{
-                          fontSize:
-                            '1.1rem',
-                          fontWeight:
-                            700
+                          fontWeight: 600,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
                         }}
                       >
-                        #{index +
-                          1}
-                      </div>
-
-                      <div
-                        style={{
-                          minWidth:
-                            0
-                        }}
-                      >
-                        <div
-                          style={{
-                            fontWeight:
-                              600,
-                            overflow:
-                              'hidden',
-                            textOverflow:
-                              'ellipsis'
-                          }}
-                        >
-                          {user.email}
-                        </div>
-
-                        <div
-                          style={{
-                            color:
-                              'var(--text-muted)',
-                            fontSize:
-                              '0.8rem',
-                            marginTop:
-                              '0.2rem'
-                          }}
-                        >
-                          {
-                            user.interview_count
-                          }{' '}
-                          interview
-                          {user.interview_count !==
-                          1
-                            ? 's'
-                            : ''}
-                        </div>
+                        {user.email}
                       </div>
 
                       <div
                         style={{
                           color:
                             'var(--text-muted)',
-                          fontSize:
-                            '0.85rem'
+                          fontSize: '0.8rem',
+                          marginTop: '0.2rem'
                         }}
                       >
-                        {
-                          fieldLabels[
-                            rankingField
-                          ]
-                        }
-                      </div>
-
-                      <div
-                        style={{
-                          fontSize:
-                            '1.2rem',
-                          fontWeight:
-                            700,
-                          textAlign:
-                            'right'
-                        }}
-                      >
-                        {user.averages?.[
-                          rankingField
-                        ] || 0}
-                        /100
+                        {user.interview_count}{' '}
+                        interview
+                        {user.interview_count !== 1
+                          ? 's'
+                          : ''}
                       </div>
                     </div>
-                  )
-                )}
+
+                    <div
+                      style={{
+                        color:
+                          'var(--text-muted)',
+                        fontSize: '0.85rem'
+                      }}
+                    >
+                      {fieldLabels[rankingField]}
+                    </div>
+
+                    <div
+                      style={{
+                        fontSize: '1.2rem',
+                        fontWeight: 700,
+                        textAlign: 'right'
+                      }}
+                    >
+                      {user.averages?.[
+                        rankingField
+                      ] || 0}
+                      /100
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -1490,17 +1797,14 @@ const AdminDashboard = () => {
 
         <div
           style={{
-            marginTop:
-              '2rem'
+            marginTop: '2rem'
           }}
         >
           <Link
             to="/"
             style={{
-              color:
-                'var(--text-muted)',
-              textDecoration:
-                'none'
+              color: 'var(--text-muted)',
+              textDecoration: 'none'
             }}
           >
             ← Back to Home Page
