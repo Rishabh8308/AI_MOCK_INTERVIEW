@@ -9,7 +9,12 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 const app = express();
-
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    message: 'InterviewAI backend is running'
+  });
+});
 console.log('[SERVER] Initializing Express app...');
 
 app.use(cors());
